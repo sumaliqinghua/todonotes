@@ -1,0 +1,53 @@
+{
+  "name": "notes",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"tsc -w -p tsconfig.main.json\" \"tsc -w -p tsconfig.preload.json\" \"wait-on dist/main/main.js dist/preload/index.js && electron .\"",
+    "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && vite build && electron-builder",
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "lint": "echo 'lint pending'",
+    "test": "echo 'tests pending'"
+  },
+  "dependencies": {
+    "@tiptap/core": "^2.1.16",
+    "@tiptap/react": "^2.1.16",
+    "@tiptap/starter-kit": "^2.1.16",
+    "better-sqlite3": "^9.4.5",
+    "date-fns": "^3.6.0",
+    "electron": "^28.3.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "uuid": "^9.0.1",
+    "zustand": "^4.4.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.9",
+    "@types/node": "^20.11.30",
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "^18.2.21",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "@electron/rebuild": "^4.0.3",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.9",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.popgo.notes",
+    "productName": "Notes",
+    "files": [
+      "dist/**/*"
+    ],
+    "asar": true,
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  }
+}
