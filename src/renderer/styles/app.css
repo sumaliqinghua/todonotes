@@ -268,7 +268,7 @@ body {
 
 .breadcrumb {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
   flex-wrap: wrap;
 }
@@ -276,7 +276,7 @@ body {
 .breadcrumb button {
   border: none;
   background: #2b2b30;
-  padding: 4px 8px;
+  padding: 2px 6px;
   border-radius: 6px;
   cursor: pointer;
   color: inherit;
@@ -288,7 +288,7 @@ body {
 
 .breadcrumb .slash {
   color: var(--text-muted);
-  margin: 0 4px;
+  margin: 0 2px;
 }
 
 .app.sticky .breadcrumb button {
@@ -353,13 +353,24 @@ body {
 .editor .ProseMirror {
   min-height: 320px;
   outline: none;
+  line-height: 1.2;
+}
+
+.editor .ProseMirror p {
+  margin: 0 0 0.4em;
 }
 
 .editor .ProseMirror ul,
 .editor .ProseMirror ol {
-  padding-left: 1ch;
+  padding-left: 1.8ch;
   margin-left: 0;
-  list-style-position: inside;
+  list-style-position: outside;
+  margin-bottom: 0.4em;
+}
+
+.editor .ProseMirror li {
+  padding-left: 0;
+  line-height: 1.2;
 }
 
 .task-link-block {
@@ -544,11 +555,13 @@ body {
   justify-content: space-between;
   padding-bottom: 6px;
   -webkit-app-region: drag;
+  user-select: none;
 }
 
 .sticky-title {
   font-weight: 600;
   font-size: 18px;
+  user-select: none;
 }
 
 .sticky-actions {
@@ -563,6 +576,7 @@ body {
   cursor: pointer;
   font-size: 14px;
   -webkit-app-region: no-drag;
+  user-select: none;
 }
 
 .sticky-pin.active {
@@ -610,13 +624,24 @@ body {
 .sticky-content .ProseMirror {
   min-height: 260px;
   outline: none;
+  line-height: 1.2;
+}
+
+.sticky-content .ProseMirror p {
+  margin: 0 0 0.4em;
 }
 
 .sticky-content .ProseMirror ul,
 .sticky-content .ProseMirror ol {
-  padding-left: 1ch;
+  padding-left: 1.8ch;
   margin-left: 0;
-  list-style-position: inside;
+  list-style-position: outside;
+  margin-bottom: 0.4em;
+}
+
+.sticky-content .ProseMirror li {
+  padding-left: 0;
+  line-height: 1.2;
 }
 
 .sticky-nav {
