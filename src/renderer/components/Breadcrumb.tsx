@@ -11,11 +11,19 @@ export default function Breadcrumb({ ancestors, current, onNavigate }: Props) {
   return (
     <div className="breadcrumb">
       {ancestors.map((task) => (
-        <button key={task.id} type="button" onClick={() => onNavigate(task.id, true)}>
-          {task.title}
-        </button>
+        <React.Fragment key={task.id}>
+          <button type="button" onClick={() => onNavigate(task.id, true)}>
+            {task.title}
+          </button>
+          <span className="slash">/</span>
+        </React.Fragment>
       ))}
-      {current ? <span className="current">{current.title}</span> : null}
+      {current ? (
+        <>
+          <span className="current">{current.title}</span>
+          <span className="slash">/</span>
+        </>
+      ) : null}
     </div>
   );
 }

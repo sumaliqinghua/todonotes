@@ -1,32 +1,32 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Reminder, Task, WindowState } from "../shared/types";
 import ContextMenu, { ContextMenuState } from "./components/ContextMenu";
-import LibraryPanel from "./components/LibraryPanel";
+import LibraryPanel, { TaskTreeNode } from "./components/LibraryPanel";
 import ReminderModal from "./components/ReminderModal";
+import StickyView from "./components/StickyView";
 import TaskDetail from "./components/TaskDetail";
 import TitleBar from "./components/TitleBar";
 
 interface Props {
   windowId: string;
   rootTaskId: string;
+  windowType: "library" | "sticky";
 }
 
-export default function App({ windowId, rootTaskId }: Props) {
+export default function App({ windowId, rootTaskId, windowType }: Props) {
   const [navPath, setNavPath] = useState<string[]>([]);
   const [currentTask, setCurrentTask] = useState<Task | null>(null);
   const [ancestors, setAncestors] = useState<Task[]>([]);
-  const [children, setChildren] = useState<Task[]>([]);
   const [libraryTasks, setLibraryTasks] = useState<Task[]>([]);
+  const [taskTree, setTaskTree] = useState<TaskTreeNode[]>([]);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<"active" | "completed" | "archived" | "trash">("active");
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [opacity, setOpacity] = useState(1);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   const searchTimer = useRef<number | null>(null);
   const currentTaskIdRef = useRef<string | null>(null);
   const navPathRef = useRef<string[]>([]);
-  const viewModeRef = useRef(viewMode);
 
   const currentTaskId = navPath[navPath.length - 1];
   useEffect(() => {
@@ -35,32 +35,35 @@ export default function App({ windowId, rootTaskId }: Props) {
   useEffect(() => {
     navPathRef.current = navPath;
   }, [navPath]);
-  useEffect(() => {
-    viewModeRef.current = viewMode;
-  }, [viewMode]);
 
-  const refreshLibrary = async (query = searchQuery, mode = viewMode) => {
+  const refreshLibrary = async (query = searchQuery) => {
     if (query.trim()) {
       const results = await window.api.invoke("task:search", { query: query.trim() });
       setLibraryTasks(results);
+      setTaskTree([]);
       return;
     }
-    const includeArchived = mode === "archived";
-    const includeDeleted = mode === "trash";
-    const tasks = await window.api.invoke("task:listRoots", { includeArchived, includeDeleted });
-    const filtered = tasks.filter((task) => {
-      if (mode === "active") {
-        return !task.isArchived && !task.isDeleted && !task.isCompleted;
+    const roots = await window.api.invoke("task:listRoots", { includeArchived: false, includeDeleted: false });
+    const visited = new Set<string>();
+    const buildNode = async (task: Task): Promise<TaskTreeNode> => {
+      if (visited.has(task.id)) {
+        return { task, children: [] };
       }
-      if (mode === "completed") {
-        return task.isCompleted && !task.isDeleted;
+      visited.add(task.id);
+      const children = await window.api.invoke("task:listChildren", { parentId: task.id });
+      const visible = children.filter((child) => !child.isArchived && !child.isDeleted);
+      const childNodes: TaskTreeNode[] = [];
+      for (const child of visible) {
+        childNodes.push(await buildNode(child));
       }
-      if (mode === "archived") {
-        return task.isArchived && !task.isDeleted;
-      }
-      return task.isDeleted;
-    });
-    setLibraryTasks(filtered);
+      return { task, children: childNodes };
+    };
+    const treeNodes: TaskTreeNode[] = [];
+    for (const root of roots.filter((task) => !task.isArchived && !task.isDeleted)) {
+      treeNodes.push(await buildNode(root));
+    }
+    setLibraryTasks([]);
+    setTaskTree(treeNodes);
   };
 
   const loadTask = async (taskId: string) => {
@@ -70,10 +73,8 @@ export default function App({ windowId, rootTaskId }: Props) {
       return;
     }
     const chain = await window.api.invoke("task:getAncestors", { taskId });
-    const childTasks = await window.api.invoke("task:listChildren", { parentId: taskId });
     setCurrentTask(task);
     setAncestors(chain);
-    setChildren(childTasks);
   };
 
   const syncWindowState = (nextPath: string[]) => {
@@ -121,10 +122,8 @@ export default function App({ windowId, rootTaskId }: Props) {
   };
 
   const handleCreateRoot = async () => {
-    const title = window.prompt("新任务标题")?.trim();
-    if (!title) {
-      return;
-    }
+    const input = window.prompt("新任务标题");
+    const title = input && input.trim() ? input.trim() : `新任务 ${new Date().toLocaleTimeString()}`;
     const task = await window.api.invoke("task:create", { title });
     await refreshLibrary();
     await handleNavigate(task.id, true);
@@ -148,12 +147,8 @@ export default function App({ windowId, rootTaskId }: Props) {
       y: event.clientY,
       items: [
         {
-          label: "在当前窗口打开",
-          action: () => handleNavigate(task.id, true)
-        },
-        {
-          label: "在新便签中打开",
-          action: () => window.api.invoke("window:open", { rootTaskId: task.id })
+          label: "打开置顶便签",
+          action: () => window.api.invoke("window:open", { rootTaskId: task.id, windowType: "sticky" })
         },
         {
           label: task.isArchived ? "取消归档" : "归档",
@@ -228,7 +223,9 @@ export default function App({ windowId, rootTaskId }: Props) {
         syncWindowState(initialPath);
         await loadTask(rootTaskId);
       }
-      await refreshLibrary();
+      if (windowType === "library") {
+        await refreshLibrary();
+      }
     };
 
     init();
@@ -237,14 +234,18 @@ export default function App({ windowId, rootTaskId }: Props) {
       if (taskId === currentTaskIdRef.current) {
         loadTask(taskId);
       }
-      refreshLibrary(searchQuery, viewModeRef.current);
+      if (windowType === "library") {
+        refreshLibrary(searchQuery);
+      }
     });
 
     const offDeleted = window.api.on("task:deleted", ({ taskId }) => {
       if (taskId === currentTaskIdRef.current) {
         handleBackFromRef();
       }
-      refreshLibrary(searchQuery, viewModeRef.current);
+      if (windowType === "library") {
+        refreshLibrary(searchQuery);
+      }
     });
 
     const offReminder = window.api.on("reminder:trigger", ({ reminders }) => {
@@ -260,8 +261,32 @@ export default function App({ windowId, rootTaskId }: Props) {
 
   const titleText = useMemo(() => currentTask?.title ?? "未选择任务", [currentTask?.title]);
 
+  if (windowType === "sticky") {
+    return (
+      <div className="app sticky" onClick={() => setMenu(null)}>
+        <StickyView
+          windowId={windowId}
+          task={currentTask}
+          ancestors={ancestors}
+          onNavigate={handleNavigate}
+          onOpenInNewWindow={(taskId) => window.api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
+          onCreateChildFromBlock={handleCreateChildFromBlock}
+          onShowMenu={setMenu}
+          isPinned={alwaysOnTop}
+          onTogglePin={() => {
+            const next = !alwaysOnTop;
+            setAlwaysOnTop(next);
+            window.api.invoke("window:updateState", { windowId, alwaysOnTop: next });
+          }}
+          onClose={() => window.api.invoke("window:close", { windowId })}
+        />
+        <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+      </div>
+    );
+  }
+
   return (
-    <div className="app" onClick={() => setMenu(null)}>
+    <div className="app library" onClick={() => setMenu(null)}>
       <TitleBar
         windowId={windowId}
         title={titleText}
@@ -277,29 +302,33 @@ export default function App({ windowId, rootTaskId }: Props) {
           setOpacity(next);
           window.api.invoke("window:updateState", { windowId, opacity: next });
         }}
+        showAdvancedControls={false}
       />
       <div className="layout">
         <LibraryPanel
-          tasks={libraryTasks}
+          nodes={searchQuery.trim() ? libraryTasks.map((task) => ({ task, children: [] })) : taskTree}
           onOpenTask={(taskId) => handleNavigate(taskId, true)}
           onCreateRoot={handleCreateRoot}
           onContextMenu={handleLibraryMenu}
           searchQuery={searchQuery}
           onSearchChange={handleSearchChange}
-          viewMode={viewMode}
-          onViewChange={(mode) => {
-            setViewMode(mode);
-            refreshLibrary(searchQuery, mode);
+          onQuickAdd={async (title) => {
+            const task = await window.api.invoke("task:create", { title });
+            await refreshLibrary(searchQuery);
+            await handleNavigate(task.id, true);
+          }}
+          onToggleComplete={async (task) => {
+            await window.api.invoke("task:update", { id: task.id, isCompleted: !task.isCompleted });
+            await refreshLibrary(searchQuery);
+            if (currentTaskIdRef.current === task.id) {
+              await loadTask(task.id);
+            }
           }}
         />
         <TaskDetail
           task={currentTask}
-          ancestors={ancestors}
-          children={children}
           onNavigate={handleNavigate}
-          onBack={handleBack}
-          onOpenInNewWindow={(taskId) => window.api.invoke("window:open", { rootTaskId: taskId })}
-          onUpdateTitle={(title) => currentTask && window.api.invoke("task:update", { id: currentTask.id, title })}
+          onOpenInNewWindow={(taskId) => window.api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
           onUpdateBlocks={(blocks) => currentTask && window.api.invoke("task:update", { id: currentTask.id, blocks })}
           onCreateChildFromBlock={handleCreateChildFromBlock}
           onShowMenu={setMenu}

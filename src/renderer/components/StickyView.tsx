@@ -6,41 +6,43 @@ import TaskItem from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
 import type { Task } from "../../shared/types";
 import { TaskLinkNode } from "./TaskLinkNode";
-import type { ContextMenuState } from "./ContextMenu";
+import Breadcrumb from "./Breadcrumb";
 import { createImageHandlers } from "../utils/editorImages";
 
-const DEFAULT_BLOCKS = {
-  type: "doc",
-  content: [{ type: "paragraph" }]
-};
-
 interface Props {
+  windowId: string;
   task: Task | null;
+  ancestors: Task[];
   onNavigate: (taskId: string, reset: boolean) => void;
   onOpenInNewWindow: (taskId: string) => void;
-  onUpdateBlocks: (blocks: any) => void;
   onCreateChildFromBlock: (title: string) => Promise<{ taskId: string; title: string }>;
-  onShowMenu: (menu: ContextMenuState | null) => void;
+  onShowMenu: (menu: { x: number; y: number; items: { label: string; action: () => void }[] } | null) => void;
+  isPinned: boolean;
+  onTogglePin: () => void;
+  onClose: () => void;
 }
 
-export default function TaskDetail({
+export default function StickyView({
+  windowId,
   task,
+  ancestors,
   onNavigate,
   onOpenInNewWindow,
-  onUpdateBlocks,
   onCreateChildFromBlock,
-  onShowMenu
+  onShowMenu,
+  isPinned,
+  onTogglePin,
+  onClose
 }: Props) {
-  const [title, setTitle] = useState(task?.title ?? "");
-  const blocksTimer = useRef<number | null>(null);
+  const saveTimer = useRef<number | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const imageHandlers = createImageHandlers(editorRef);
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimer = useRef<number | null>(null);
-
   const editor = useEditor({
     extensions: [StarterKit, TaskList, TaskItem, Image, TaskLinkNode],
-    content: task?.blocks ?? DEFAULT_BLOCKS,
+    content: task?.blocks ?? { type: "doc", content: [{ type: "paragraph" }] },
+    editable: true,
     editorProps: {
       handlePaste: imageHandlers.handlePaste,
       handleDrop: imageHandlers.handleDrop,
@@ -56,25 +58,38 @@ export default function TaskDetail({
       }
     },
     onUpdate: ({ editor }) => {
-      if (blocksTimer.current) {
-        window.clearTimeout(blocksTimer.current);
+      if (!task) {
+        return;
       }
-      blocksTimer.current = window.setTimeout(() => {
-        onUpdateBlocks(editor.getJSON());
-      }, 500);
+      if (saveTimer.current) {
+        window.clearTimeout(saveTimer.current);
+      }
+      saveTimer.current = window.setTimeout(() => {
+        window.api.invoke("task:update", { id: task.id, blocks: editor.getJSON() });
+      }, 400);
     }
   });
 
   useEffect(() => {
-    setTitle(task?.title ?? "");
     if (editor && task) {
-      editor.commands.setContent(task.blocks ?? DEFAULT_BLOCKS, false);
+      editor.commands.setContent(task.blocks, false);
     }
-  }, [task?.id, editor]);
+  }, [editor, task?.id]);
 
   useEffect(() => {
     editorRef.current = editor ?? null;
   }, [editor]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) {
+        window.clearTimeout(saveTimer.current);
+      }
+      if (scrollTimer.current) {
+        window.clearTimeout(scrollTimer.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!editor) {
@@ -89,17 +104,6 @@ export default function TaskDetail({
     document.addEventListener("keydown", handleKeydown);
     return () => document.removeEventListener("keydown", handleKeydown);
   }, [editor, task?.id]);
-
-  useEffect(() => {
-    return () => {
-      if (blocksTimer.current) {
-        window.clearTimeout(blocksTimer.current);
-      }
-      if (scrollTimer.current) {
-        window.clearTimeout(scrollTimer.current);
-      }
-    };
-  }, []);
 
   const convertSelectionToChild = async () => {
     if (!editor || !task) {
@@ -186,17 +190,35 @@ export default function TaskDetail({
     });
   };
 
+  const today = new Date();
+  const footerText = `今天, ${today.getMonth() + 1}月${today.getDate()}日`;
+
   if (!task) {
-    return <div className="task-detail">加载中...</div>;
+    return <div className="sticky-view">加载中...</div>;
   }
 
   return (
-    <div className="task-detail" onContextMenu={handleContextMenu}>
-      <div className="task-title-text">{title}</div>
+    <div className="sticky-view" onContextMenu={handleContextMenu}>
+      <div className="sticky-header">
+        <div className="sticky-title">{task.title}</div>
+        <div className="sticky-actions">
+          <button type="button" className={`sticky-pin ${isPinned ? "active" : ""}`} onClick={onTogglePin}>
+            {isPinned ? "📌" : "📍"}
+          </button>
+          <button type="button" onClick={() => window.api.invoke("window:minimize", { windowId })}>
+            —
+          </button>
+          <button type="button" onClick={onClose}>
+            ×
+          </button>
+        </div>
+      </div>
+      <div className="sticky-nav">
+        <Breadcrumb ancestors={ancestors} current={task} onNavigate={onNavigate} />
+      </div>
       <div
-        className={`editor ${isScrolling ? "scrolling" : ""}`}
+        className={`sticky-content ${isScrolling ? "scrolling" : ""}`}
         onClick={() => {
-          onShowMenu(null);
           editor?.commands.focus();
         }}
         onScroll={() => {
@@ -208,6 +230,10 @@ export default function TaskDetail({
         }}
       >
         <EditorContent editor={editor} />
+      </div>
+      <div className="sticky-footer">
+        <span>{footerText}</span>
+        <span>⋯</span>
       </div>
     </div>
   );

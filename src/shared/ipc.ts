@@ -15,7 +15,7 @@ export interface IpcInvokeMap {
   "edge:create": (input: { parentId: string; childId: string }) => void;
   "edge:delete": (input: { parentId: string; childId: string }) => void;
 
-  "window:open": (input: { rootTaskId: string }) => { windowId: string };
+  "window:open": (input: { rootTaskId: string; windowType?: "library" | "sticky" }) => { windowId: string };
   "window:getState": (input: { windowId: string }) => WindowState | null;
   "window:updateState": (input: Partial<WindowState> & { windowId: string }) => void;
   "window:getAllStates": () => WindowState[];
@@ -24,11 +24,13 @@ export interface IpcInvokeMap {
 
   "reminder:create": (input: ReminderCreateInput) => Reminder;
   "reminder:delete": (input: { id: string }) => void;
+  "reminder:listByTask": (input: { taskId: string }) => Reminder[];
   "reminder:listDue": (input: { now: number }) => Reminder[];
   "reminder:markDone": (input: { id: string }) => void;
 
   "attachment:add": (input: AttachmentAddInput) => Attachment;
   "attachment:list": (input: { taskId: string }) => Attachment[];
+  "attachment:reveal": (input: { attachmentId: string }) => void;
 }
 
 export interface IpcEventMap {

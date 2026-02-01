@@ -6,6 +6,7 @@ function rowToState(row: any): WindowState {
     windowId: row.window_id,
     rootTaskId: row.root_task_id,
     navPathTaskIds: JSON.parse(row.nav_path_task_ids),
+    windowType: row.window_type ?? "library",
     x: row.x === null ? null : Number(row.x),
     y: row.y === null ? null : Number(row.y),
     width: Number(row.width),
@@ -20,11 +21,12 @@ function rowToState(row: any): WindowState {
 export function upsertWindowState(state: WindowState) {
   const db = getDb();
   db.prepare(
-    `INSERT INTO window_states (window_id, root_task_id, nav_path_task_ids, x, y, width, height, opacity, always_on_top, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO window_states (window_id, root_task_id, nav_path_task_ids, window_type, x, y, width, height, opacity, always_on_top, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(window_id) DO UPDATE SET
        root_task_id = excluded.root_task_id,
        nav_path_task_ids = excluded.nav_path_task_ids,
+       window_type = excluded.window_type,
        x = excluded.x,
        y = excluded.y,
        width = excluded.width,
@@ -36,6 +38,7 @@ export function upsertWindowState(state: WindowState) {
     state.windowId,
     state.rootTaskId,
     JSON.stringify(state.navPathTaskIds),
+    state.windowType,
     state.x,
     state.y,
     state.width,

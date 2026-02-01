@@ -7,6 +7,7 @@ interface Props {
   opacity: number;
   onToggleAlwaysOnTop: () => void;
   onOpacityChange: (value: number) => void;
+  showAdvancedControls?: boolean;
 }
 
 export default function TitleBar({
@@ -15,33 +16,37 @@ export default function TitleBar({
   alwaysOnTop,
   opacity,
   onToggleAlwaysOnTop,
-  onOpacityChange
+  onOpacityChange,
+  showAdvancedControls = true
 }: Props) {
   return (
     <div className="titlebar">
-      <div className="titlebar-drag" />
       <div className="titlebar-content">
         <div className="titlebar-title">{title}</div>
         <div className="titlebar-actions">
-          <label className="opacity-control">
-            透明度
-            <input
-              type="range"
-              min={0.3}
-              max={1}
-              step={0.05}
-              value={opacity}
-              onChange={(event) => onOpacityChange(Number(event.target.value))}
-            />
-          </label>
-          <button type="button" className={alwaysOnTop ? "active" : ""} onClick={onToggleAlwaysOnTop}>
-            置顶
+          {showAdvancedControls ? (
+            <>
+              <label className="opacity-control">
+                透明度
+                <input
+                  type="range"
+                  min={0.3}
+                  max={1}
+                  step={0.05}
+                  value={opacity}
+                  onChange={(event) => onOpacityChange(Number(event.target.value))}
+                />
+              </label>
+              <button type="button" className={alwaysOnTop ? "active" : ""} onClick={onToggleAlwaysOnTop}>
+                置顶
+              </button>
+            </>
+          ) : null}
+          <button type="button" className="icon-btn" onClick={() => window.api.invoke("window:minimize", { windowId })}>
+            —
           </button>
-          <button type="button" onClick={() => window.api.invoke("window:minimize", { windowId })}>
-            最小化
-          </button>
-          <button type="button" onClick={() => window.api.invoke("window:close", { windowId })}>
-            关闭
+          <button type="button" className="icon-btn" onClick={() => window.api.invoke("window:close", { windowId })}>
+            ×
           </button>
         </div>
       </div>

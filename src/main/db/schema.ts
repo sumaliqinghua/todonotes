@@ -25,6 +25,7 @@ export function migrate(db: Database.Database) {
       window_id TEXT PRIMARY KEY,
       root_task_id TEXT NOT NULL,
       nav_path_task_ids TEXT NOT NULL,
+      window_type TEXT NOT NULL DEFAULT 'library',
       x INTEGER,
       y INTEGER,
       width INTEGER NOT NULL,
@@ -64,4 +65,10 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_edges_child ON edges (child_task_id);
     CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (is_done, remind_at);
   `);
+
+  const columns = db.prepare("PRAGMA table_info(window_states)").all() as { name: string }[];
+  const hasWindowType = columns.some((column) => column.name === "window_type");
+  if (!hasWindowType) {
+    db.exec("ALTER TABLE window_states ADD COLUMN window_type TEXT NOT NULL DEFAULT 'library'");
+  }
 }

@@ -39,6 +39,14 @@ export function listDueReminders(now: number): Reminder[] {
   return rows.map(rowToReminder);
 }
 
+export function listRemindersByTask(taskId: string): Reminder[] {
+  const db = getDb();
+  const rows = db
+    .prepare("SELECT * FROM reminders WHERE task_id = ? ORDER BY remind_at ASC")
+    .all(taskId);
+  return rows.map(rowToReminder);
+}
+
 export function markReminderDone(id: string) {
   const db = getDb();
   db.prepare("UPDATE reminders SET is_done = 1 WHERE id = ?").run(id);

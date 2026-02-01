@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { ipcMain, shell } from "electron";
 import type { IpcInvokeMap } from "../../shared/ipc";
 import {
   createTask,
@@ -12,8 +12,8 @@ import {
   searchTasks
 } from "../db/tasksRepo";
 import { createEdge, deleteEdge } from "../db/edgesRepo";
-import { createReminder, deleteReminder, listDueReminders, markReminderDone } from "../db/remindersRepo";
-import { addAttachment, listAttachments } from "../db/attachmentsRepo";
+import { createReminder, deleteReminder, listDueReminders, listRemindersByTask, markReminderDone } from "../db/remindersRepo";
+import { addAttachment, getAttachment, listAttachments } from "../db/attachmentsRepo";
 import { broadcast } from "./events";
 import { createTaskWindow, getWindowById, getWindowState, updateWindowState, loadWindowStates } from "../windowManager";
 
@@ -77,7 +77,7 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle("window:open", (_event, input: Parameters<IpcInvokeMap["window:open"]>[0]) => {
-    const { windowId } = createTaskWindow(input.rootTaskId);
+    const { windowId } = createTaskWindow(input.rootTaskId, undefined, { windowType: input.windowType });
     return { windowId };
   });
 
@@ -111,6 +111,10 @@ export function registerIpcHandlers() {
     deleteReminder(input.id);
   });
 
+  ipcMain.handle("reminder:listByTask", (_event, input: Parameters<IpcInvokeMap["reminder:listByTask"]>[0]) => {
+    return listRemindersByTask(input.taskId);
+  });
+
   ipcMain.handle("reminder:listDue", (_event, input: Parameters<IpcInvokeMap["reminder:listDue"]>[0]) => {
     return listDueReminders(input.now);
   });
@@ -125,5 +129,12 @@ export function registerIpcHandlers() {
 
   ipcMain.handle("attachment:list", (_event, input: Parameters<IpcInvokeMap["attachment:list"]>[0]) => {
     return listAttachments(input.taskId);
+  });
+
+  ipcMain.handle("attachment:reveal", (_event, input: Parameters<IpcInvokeMap["attachment:reveal"]>[0]) => {
+    const attachment = getAttachment(input.attachmentId);
+    if (attachment) {
+      shell.showItemInFolder(attachment.storedPath);
+    }
   });
 }

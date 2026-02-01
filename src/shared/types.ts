@@ -22,6 +22,7 @@ export interface WindowState {
   windowId: string;
   rootTaskId: string;
   navPathTaskIds: string[];
+  windowType: "library" | "sticky";
   x: number | null;
   y: number | null;
   width: number;

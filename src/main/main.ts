@@ -22,8 +22,17 @@ function restoreWindows() {
     createTaskWindow(rootTaskId);
     return;
   }
-  states.forEach((state) => {
-    createTaskWindow(state.rootTaskId, state);
+  const libraryStates = states.filter((state) => state.windowType === "library");
+  const stickyStates = states.filter((state) => state.windowType === "sticky");
+  const libraryState = libraryStates[0];
+  if (libraryState) {
+    createTaskWindow(libraryState.rootTaskId, libraryState);
+  } else {
+    const rootTaskId = ensureInitialTask();
+    createTaskWindow(rootTaskId, undefined, { windowType: "library" });
+  }
+  stickyStates.forEach((state) => {
+    createTaskWindow(state.rootTaskId, state, { windowType: "sticky" });
   });
 }
 
@@ -51,6 +60,9 @@ app.on("window-all-closed", () => {
 
 app.on("activate", () => {
   if (app.isReady() && process.platform === "darwin") {
-    restoreWindows();
+    const { BrowserWindow } = require("electron");
+    if (BrowserWindow.getAllWindows().length === 0) {
+      restoreWindows();
+    }
   }
 });

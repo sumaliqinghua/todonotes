@@ -10,9 +10,9 @@ const MIN_VISIBLE = 32;
 const windows = new Map<string, BrowserWindow>();
 const windowStates = new Map<string, WindowState>();
 
-function getRendererUrl(windowId: string, rootTaskId: string) {
+function getRendererUrl(windowId: string, rootTaskId: string, windowType: "library" | "sticky") {
   const base = process.env.VITE_DEV_SERVER_URL || (app.isPackaged ? "" : "http://localhost:5173");
-  const query = `?windowId=${encodeURIComponent(windowId)}&rootTaskId=${encodeURIComponent(rootTaskId)}`;
+  const query = `?windowId=${encodeURIComponent(windowId)}&rootTaskId=${encodeURIComponent(rootTaskId)}&windowType=${encodeURIComponent(windowType)}`;
   if (base) {
     return `${base}${query}`;
   }
@@ -56,26 +56,32 @@ function snapBounds(bounds: Electron.Rectangle) {
   return { x, y };
 }
 
-function createDefaultState(windowId: string, rootTaskId: string): WindowState {
+function createDefaultState(windowId: string, rootTaskId: string, windowType: "library" | "sticky"): WindowState {
   const now = Date.now();
   return {
     windowId,
     rootTaskId,
     navPathTaskIds: [rootTaskId],
+    windowType,
     x: null,
     y: null,
-    width: 420,
-    height: 600,
+    width: windowType === "sticky" ? 360 : 1100,
+    height: windowType === "sticky" ? 420 : 720,
     opacity: 1,
-    alwaysOnTop: false,
+    alwaysOnTop: windowType === "sticky",
     createdAt: now,
     updatedAt: now
   };
 }
 
-export function createTaskWindow(rootTaskId: string, existingState?: WindowState) {
+export function createTaskWindow(
+  rootTaskId: string,
+  existingState?: WindowState,
+  options?: { windowType?: "library" | "sticky" }
+) {
   const windowId = existingState?.windowId ?? uuidv4();
-  const state = existingState ?? createDefaultState(windowId, rootTaskId);
+  const windowType = existingState?.windowType ?? options?.windowType ?? "library";
+  const state = existingState ?? createDefaultState(windowId, rootTaskId, windowType);
 
   const win = new BrowserWindow({
     width: state.width,
@@ -86,6 +92,7 @@ export function createTaskWindow(rootTaskId: string, existingState?: WindowState
     resizable: true,
     transparent: false,
     alwaysOnTop: state.alwaysOnTop,
+    backgroundColor: windowType === "sticky" ? "#f6e68b" : "#1c1c1e",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -94,8 +101,8 @@ export function createTaskWindow(rootTaskId: string, existingState?: WindowState
   });
 
   win.setOpacity(state.opacity);
-  win.setMinimumSize(320, 360);
-  win.loadURL(getRendererUrl(windowId, rootTaskId));
+  win.setMinimumSize(windowType === "sticky" ? 260 : 800, windowType === "sticky" ? 300 : 520);
+  win.loadURL(getRendererUrl(windowId, rootTaskId, windowType));
 
   const updateStateFromWindow = () => {
     const bounds = win.getBounds();
