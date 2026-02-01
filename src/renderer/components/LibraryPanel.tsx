@@ -15,6 +15,8 @@ interface Props {
   onSearchChange: (value: string) => void;
   onQuickAdd: (title: string) => void;
   onToggleComplete: (task: Task) => void;
+  activeTab: "inProgress" | "completed" | "deleted" | "archived";
+  onTabChange: (tab: "inProgress" | "completed" | "deleted" | "archived") => void;
 }
 
 export default function LibraryPanel({
@@ -25,7 +27,9 @@ export default function LibraryPanel({
   searchQuery,
   onSearchChange,
   onQuickAdd,
-  onToggleComplete
+  onToggleComplete,
+  activeTab,
+  onTabChange
 }: Props) {
   const [quickInput, setQuickInput] = React.useState("");
   const [collapsedIds, setCollapsedIds] = React.useState<Set<string>>(new Set());
@@ -44,7 +48,7 @@ export default function LibraryPanel({
 
   const renderNodes = (items: TaskTreeNode[], depth: number) => {
     if (items.length === 0) {
-      return depth === 0 ? <div className="empty">暂无任务</div> : null;
+      return depth === 0 ? <div className="text-xs text-app-muted">暂无任务</div> : null;
     }
     return items.map((node) => {
       const hasChildren = node.children.length > 0;
@@ -52,14 +56,14 @@ export default function LibraryPanel({
       return (
         <div key={node.task.id}>
           <div
-            className={`tree-row ${node.task.isCompleted ? "completed" : ""}`}
-            style={{ paddingLeft: 8 + depth * 16 }}
+            className={`flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-sm hover:border-app-border hover:bg-app-panelAlt ${node.task.isCompleted ? "text-app-muted line-through" : "text-app-text"}`}
+            style={{ paddingLeft: 12 + depth * 14 }}
             onClick={() => onOpenTask(node.task.id)}
             onContextMenu={(event) => onContextMenu(event, node.task)}
           >
             <button
               type="button"
-              className={`tree-toggle ${hasChildren ? "" : "hidden"}`}
+              className={`text-xs text-app-muted ${hasChildren ? "" : "invisible"}`}
               onClick={(event) => {
                 event.stopPropagation();
                 if (hasChildren) {
@@ -71,7 +75,7 @@ export default function LibraryPanel({
             </button>
             <input
               type="checkbox"
-              className="tree-checkbox"
+              className="h-4 w-4 accent-app-accent"
               checked={node.task.isCompleted}
               onChange={(event) => {
                 event.stopPropagation();
@@ -79,24 +83,36 @@ export default function LibraryPanel({
               }}
               onClick={(event) => event.stopPropagation()}
             />
-            <span className="tree-title">{node.task.title}</span>
+            <span className="truncate">{node.task.title}</span>
           </div>
           {!collapsed ? renderNodes(node.children, depth + 1) : null}
         </div>
       );
     });
   };
+
+  const tabs = [
+    { id: "inProgress" as const, label: "进行中" },
+    { id: "completed" as const, label: "已完成" },
+    { id: "deleted" as const, label: "回收站" },
+    { id: "archived" as const, label: "归档" }
+  ];
   return (
-    <div className="library-panel">
-      <div className="library-header">
-        <div className="library-title">任务</div>
-        <button type="button" className="ghost" onClick={onCreateRoot}>
+    <div className="flex h-full flex-col gap-3 rounded-2xl border border-app-border bg-app-panel p-4 shadow-soft">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-app-text">任务</div>
+        <button
+          type="button"
+          className="rounded-full border border-app-border bg-app-panelAlt px-3 py-1 text-xs text-app-text hover:bg-app-panel"
+          onClick={onCreateRoot}
+        >
           新建
         </button>
       </div>
-      <div className="library-quick-add">
-        <span className="plus">＋</span>
+      <div className="flex items-center gap-2 rounded-xl border border-app-border bg-app-panelAlt px-3 py-2 text-sm text-app-text">
+        <span className="text-app-accent">＋</span>
         <input
+          className="flex-1 bg-transparent text-sm text-app-text outline-none placeholder:text-app-muted"
           placeholder="添加任务至“收集箱”"
           value={quickInput}
           onChange={(event) => setQuickInput(event.target.value)}
@@ -109,13 +125,25 @@ export default function LibraryPanel({
         />
       </div>
       <input
-        className="library-search"
+        className="rounded-xl border border-app-border bg-app-panelAlt px-3 py-2 text-sm text-app-text outline-none placeholder:text-app-muted"
         placeholder="搜索任务..."
         value={searchQuery}
         onChange={(event) => onSearchChange(event.target.value)}
       />
-      <div className="library-list">
-        {renderNodes(nodes, 0)}
+      <div className="grid grid-cols-4 gap-2">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={`rounded-xl border px-2 py-1 text-[11px] ${activeTab === tab.id ? "border-app-accent bg-app-panelAlt text-app-text" : "border-app-border bg-app-panelAlt/70 text-app-muted hover:text-app-text"}`}
+            onClick={() => onTabChange(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex-1 overflow-auto pr-1">
+        <div className="flex flex-col gap-2">{renderNodes(nodes, 0)}</div>
       </div>
     </div>
   );

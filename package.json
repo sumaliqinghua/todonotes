@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && vite build && electron-builder",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "lint": "echo 'lint pending'",
-    "test": "echo 'tests pending'"
+    "test": "vitest run"
   },
   "dependencies": {
     "@tiptap/core": "^2.1.16",
@@ -35,8 +35,13 @@
     "concurrently": "^8.2.2",
     "@electron/rebuild": "^4.0.3",
     "electron-builder": "^24.13.3",
+    "autoprefixer": "^10.4.19",
+    "jsdom": "^24.0.0",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.4",
     "typescript": "^5.4.5",
     "vite": "^5.2.9",
+    "vitest": "^1.6.0",
     "wait-on": "^7.2.0"
   },
   "build": {

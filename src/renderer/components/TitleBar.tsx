@@ -20,13 +20,13 @@ export default function TitleBar({
   showAdvancedControls = true
 }: Props) {
   return (
-    <div className="titlebar">
-      <div className="titlebar-content">
-        <div className="titlebar-title">{title}</div>
-        <div className="titlebar-actions">
+    <div className="drag-region flex h-12 items-center border-b border-app-border bg-app-panel px-4">
+      <div className="flex w-full items-center justify-between gap-3">
+        <div className="truncate text-sm font-semibold text-app-text">{title}</div>
+        <div className="no-drag flex items-center gap-2 text-xs text-app-muted">
           {showAdvancedControls ? (
             <>
-              <label className="opacity-control">
+              <label className="flex items-center gap-2 rounded-full border border-app-border bg-app-panelAlt px-3 py-1 text-[11px] text-app-text">
                 透明度
                 <input
                   type="range"
@@ -34,18 +34,31 @@ export default function TitleBar({
                   max={1}
                   step={0.05}
                   value={opacity}
+                  className="w-20 accent-app-accent"
                   onChange={(event) => onOpacityChange(Number(event.target.value))}
                 />
               </label>
-              <button type="button" className={alwaysOnTop ? "active" : ""} onClick={onToggleAlwaysOnTop}>
+              <button
+                type="button"
+                className={`rounded-full border border-app-border px-3 py-1 text-[11px] ${alwaysOnTop ? "bg-app-accent text-white" : "bg-app-panelAlt text-app-text"}`}
+                onClick={onToggleAlwaysOnTop}
+              >
                 置顶
               </button>
             </>
           ) : null}
-          <button type="button" className="icon-btn" onClick={() => window.api.invoke("window:minimize", { windowId })}>
+          <button
+            type="button"
+            className="h-7 w-7 rounded-full border border-app-border bg-app-panelAlt text-base text-app-text hover:bg-app-panel"
+            onClick={() => window.api.invoke("window:minimize", { windowId })}
+          >
             —
           </button>
-          <button type="button" className="icon-btn" onClick={() => window.api.invoke("window:close", { windowId })}>
+          <button
+            type="button"
+            className="h-7 w-7 rounded-full border border-app-border bg-app-panelAlt text-base text-app-text hover:bg-app-panel"
+            onClick={() => window.api.invoke("window:close", { windowId })}
+          >
             ×
           </button>
         </div>

@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { Reminder, Task, WindowState } from "../shared/types";
+import type { Task } from "../shared/types";
 import ContextMenu, { ContextMenuState } from "./components/ContextMenu";
 import LibraryPanel, { TaskTreeNode } from "./components/LibraryPanel";
 import ReminderModal from "./components/ReminderModal";
 import StickyView from "./components/StickyView";
 import TaskDetail from "./components/TaskDetail";
 import TitleBar from "./components/TitleBar";
+import { useAppStore, type LibraryTab } from "./store/useAppStore";
 
 interface Props {
   windowId: string;
@@ -13,17 +14,52 @@ interface Props {
   windowType: "library" | "sticky";
 }
 
+const matchesTabFilter = (task: Task, tab: LibraryTab) => {
+  if (tab === "inProgress") {
+    return !task.isCompleted && !task.isArchived && !task.isDeleted;
+  }
+  if (tab === "completed") {
+    return task.isCompleted && !task.isArchived && !task.isDeleted;
+  }
+  if (tab === "deleted") {
+    return task.isDeleted;
+  }
+  return task.isArchived && !task.isDeleted;
+};
+
+const filterTaskTree = (nodes: TaskTreeNode[], predicate: (task: Task) => boolean): TaskTreeNode[] => {
+  return nodes.reduce<TaskTreeNode[]>((acc, node) => {
+    const filteredChildren = filterTaskTree(node.children, predicate);
+    if (predicate(node.task) || filteredChildren.length > 0) {
+      acc.push({ task: node.task, children: filteredChildren });
+    }
+    return acc;
+  }, []);
+};
+
 export default function App({ windowId, rootTaskId, windowType }: Props) {
-  const [navPath, setNavPath] = useState<string[]>([]);
-  const [currentTask, setCurrentTask] = useState<Task | null>(null);
-  const [ancestors, setAncestors] = useState<Task[]>([]);
-  const [libraryTasks, setLibraryTasks] = useState<Task[]>([]);
-  const [taskTree, setTaskTree] = useState<TaskTreeNode[]>([]);
+  const {
+    navPath,
+    currentTask,
+    ancestors,
+    libraryTasks,
+    taskTree,
+    searchQuery,
+    reminders,
+    windowSettings,
+    libraryTab,
+    setNavPath,
+    setCurrentTask,
+    setAncestors,
+    setLibraryTasks,
+    setTaskTree,
+    setSearchQuery,
+    setReminders,
+    setLibraryTab,
+    updateWindowSettings
+  } = useAppStore();
+  const { opacity, alwaysOnTop, stickyColor, stickyOpacity } = windowSettings;
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [opacity, setOpacity] = useState(1);
-  const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   const searchTimer = useRef<number | null>(null);
   const currentTaskIdRef = useRef<string | null>(null);
   const navPathRef = useRef<string[]>([]);
@@ -36,34 +72,42 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     navPathRef.current = navPath;
   }, [navPath]);
 
-  const refreshLibrary = async (query = searchQuery) => {
-    if (query.trim()) {
-      const results = await window.api.invoke("task:search", { query: query.trim() });
-      setLibraryTasks(results);
+  const refreshLibrary = async (query = searchQuery, tab = libraryTab) => {
+    const trimmed = query.trim();
+    if (trimmed) {
+      const includeArchived = tab === "archived" || tab === "deleted";
+      const includeDeleted = tab === "deleted";
+      const results = await window.api.invoke("task:search", { query: trimmed, includeArchived, includeDeleted });
+      const filtered = results.filter((task) => matchesTabFilter(task, tab));
+      setLibraryTasks(filtered);
       setTaskTree([]);
       return;
     }
-    const roots = await window.api.invoke("task:listRoots", { includeArchived: false, includeDeleted: false });
+    const roots = await window.api.invoke("task:listRoots", { includeArchived: true, includeDeleted: true });
     const visited = new Set<string>();
     const buildNode = async (task: Task): Promise<TaskTreeNode> => {
       if (visited.has(task.id)) {
         return { task, children: [] };
       }
       visited.add(task.id);
-      const children = await window.api.invoke("task:listChildren", { parentId: task.id });
-      const visible = children.filter((child) => !child.isArchived && !child.isDeleted);
+      const children = await window.api.invoke("task:listChildren", {
+        parentId: task.id,
+        includeArchived: true,
+        includeDeleted: true
+      });
       const childNodes: TaskTreeNode[] = [];
-      for (const child of visible) {
+      for (const child of children) {
         childNodes.push(await buildNode(child));
       }
       return { task, children: childNodes };
     };
     const treeNodes: TaskTreeNode[] = [];
-    for (const root of roots.filter((task) => !task.isArchived && !task.isDeleted)) {
+    for (const root of roots) {
       treeNodes.push(await buildNode(root));
     }
+    const filteredTree = filterTaskTree(treeNodes, (task) => matchesTabFilter(task, tab));
     setLibraryTasks([]);
-    setTaskTree(treeNodes);
+    setTaskTree(filteredTree);
   };
 
   const loadTask = async (taskId: string) => {
@@ -98,16 +142,6 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     setNavPath(nextPath);
     syncWindowState(nextPath);
     await loadTask(taskId);
-  };
-
-  const handleBack = async () => {
-    if (navPath.length <= 1) {
-      return;
-    }
-    const nextPath = navPath.slice(0, -1);
-    setNavPath(nextPath);
-    syncWindowState(nextPath);
-    await loadTask(nextPath[nextPath.length - 1]);
   };
 
   const handleBackFromRef = async () => {
@@ -196,7 +230,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       window.clearTimeout(searchTimer.current);
     }
     searchTimer.current = window.setTimeout(() => {
-      refreshLibrary(value);
+      refreshLibrary(value, libraryTab);
     }, 300);
   };
 
@@ -214,8 +248,12 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       const state = await window.api.invoke("window:getState", { windowId });
       if (state) {
         setNavPath(state.navPathTaskIds);
-        setOpacity(state.opacity);
-        setAlwaysOnTop(state.alwaysOnTop);
+        updateWindowSettings({
+          opacity: state.opacity,
+          alwaysOnTop: state.alwaysOnTop,
+          stickyColor: state.stickyColor ?? "#f6e8a6",
+          stickyOpacity: state.stickyOpacity ?? 1
+        });
         await loadTask(state.navPathTaskIds[state.navPathTaskIds.length - 1]);
       } else {
         const initialPath = [rootTaskId];
@@ -235,7 +273,8 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
         loadTask(taskId);
       }
       if (windowType === "library") {
-        refreshLibrary(searchQuery);
+        const { searchQuery: nextQuery, libraryTab: nextTab } = useAppStore.getState();
+        refreshLibrary(nextQuery, nextTab);
       }
     });
 
@@ -244,7 +283,8 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
         handleBackFromRef();
       }
       if (windowType === "library") {
-        refreshLibrary(searchQuery);
+        const { searchQuery: nextQuery, libraryTab: nextTab } = useAppStore.getState();
+        refreshLibrary(nextQuery, nextTab);
       }
     });
 
@@ -259,11 +299,17 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     };
   }, []);
 
+  useEffect(() => {
+    if (windowType === "library") {
+      refreshLibrary(searchQuery, libraryTab);
+    }
+  }, [libraryTab]);
+
   const titleText = useMemo(() => currentTask?.title ?? "未选择任务", [currentTask?.title]);
 
   if (windowType === "sticky") {
     return (
-      <div className="app sticky" onClick={() => setMenu(null)}>
+      <div className="min-h-screen" onClick={() => setMenu(null)}>
         <StickyView
           windowId={windowId}
           task={currentTask}
@@ -275,18 +321,31 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           isPinned={alwaysOnTop}
           onTogglePin={() => {
             const next = !alwaysOnTop;
-            setAlwaysOnTop(next);
+            updateWindowSettings({ alwaysOnTop: next });
             window.api.invoke("window:updateState", { windowId, alwaysOnTop: next });
           }}
           onClose={() => window.api.invoke("window:close", { windowId })}
+          stickyColor={stickyColor}
+          stickyOpacity={stickyOpacity}
+          onStickyColorChange={(color) => {
+            updateWindowSettings({ stickyColor: color });
+            window.api.invoke("window:updateState", { windowId, stickyColor: color });
+          }}
+          onStickyOpacityChange={(value) => {
+            const next = Math.min(1, Math.max(0.6, value));
+            updateWindowSettings({ stickyOpacity: next });
+            window.api.invoke("window:updateState", { windowId, stickyOpacity: next });
+          }}
         />
         <ContextMenu menu={menu} onClose={() => setMenu(null)} />
       </div>
     );
   }
 
+  const libraryNodes = searchQuery.trim() ? libraryTasks.map((task) => ({ task, children: [] })) : taskTree;
+
   return (
-    <div className="app library" onClick={() => setMenu(null)}>
+    <div className="flex h-screen flex-col bg-app-bg" onClick={() => setMenu(null)}>
       <TitleBar
         windowId={windowId}
         title={titleText}
@@ -294,45 +353,51 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
         opacity={opacity}
         onToggleAlwaysOnTop={() => {
           const next = !alwaysOnTop;
-          setAlwaysOnTop(next);
+          updateWindowSettings({ alwaysOnTop: next });
           window.api.invoke("window:updateState", { windowId, alwaysOnTop: next });
         }}
         onOpacityChange={(value) => {
           const next = Math.min(1, Math.max(0.3, value));
-          setOpacity(next);
+          updateWindowSettings({ opacity: next });
           window.api.invoke("window:updateState", { windowId, opacity: next });
         }}
         showAdvancedControls={false}
       />
-      <div className="layout">
-        <LibraryPanel
-          nodes={searchQuery.trim() ? libraryTasks.map((task) => ({ task, children: [] })) : taskTree}
-          onOpenTask={(taskId) => handleNavigate(taskId, true)}
-          onCreateRoot={handleCreateRoot}
-          onContextMenu={handleLibraryMenu}
-          searchQuery={searchQuery}
-          onSearchChange={handleSearchChange}
-          onQuickAdd={async (title) => {
-            const task = await window.api.invoke("task:create", { title });
-            await refreshLibrary(searchQuery);
-            await handleNavigate(task.id, true);
-          }}
-          onToggleComplete={async (task) => {
-            await window.api.invoke("task:update", { id: task.id, isCompleted: !task.isCompleted });
-            await refreshLibrary(searchQuery);
-            if (currentTaskIdRef.current === task.id) {
-              await loadTask(task.id);
-            }
-          }}
-        />
-        <TaskDetail
-          task={currentTask}
-          onNavigate={handleNavigate}
-          onOpenInNewWindow={(taskId) => window.api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
-          onUpdateBlocks={(blocks) => currentTask && window.api.invoke("task:update", { id: currentTask.id, blocks })}
-          onCreateChildFromBlock={handleCreateChildFromBlock}
-          onShowMenu={setMenu}
-        />
+      <div className="flex flex-1 flex-col gap-4 p-4 lg:flex-row">
+        <div className="w-full shrink-0 lg:w-[320px]">
+          <LibraryPanel
+            nodes={libraryNodes}
+            onOpenTask={(taskId) => handleNavigate(taskId, true)}
+            onCreateRoot={handleCreateRoot}
+            onContextMenu={handleLibraryMenu}
+            searchQuery={searchQuery}
+            onSearchChange={handleSearchChange}
+            onQuickAdd={async (title) => {
+              const task = await window.api.invoke("task:create", { title });
+              await refreshLibrary(searchQuery, libraryTab);
+              await handleNavigate(task.id, true);
+            }}
+            onToggleComplete={async (task) => {
+              await window.api.invoke("task:update", { id: task.id, isCompleted: !task.isCompleted });
+              await refreshLibrary(searchQuery, libraryTab);
+              if (currentTaskIdRef.current === task.id) {
+                await loadTask(task.id);
+              }
+            }}
+            activeTab={libraryTab}
+            onTabChange={(tab) => setLibraryTab(tab)}
+          />
+        </div>
+        <div className="flex-1">
+          <TaskDetail
+            task={currentTask}
+            onNavigate={handleNavigate}
+            onOpenInNewWindow={(taskId) => window.api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
+            onUpdateBlocks={(blocks) => currentTask && window.api.invoke("task:update", { id: currentTask.id, blocks })}
+            onCreateChildFromBlock={handleCreateChildFromBlock}
+            onShowMenu={setMenu}
+          />
+        </div>
       </div>
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
       <ReminderModal reminders={reminders} onClose={() => setReminders([])} onOpenTask={(taskId) => handleNavigate(taskId, true)} />

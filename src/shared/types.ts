@@ -28,6 +28,8 @@ export interface WindowState {
   width: number;
   height: number;
   opacity: number;
+  stickyColor: string;
+  stickyOpacity: number;
   alwaysOnTop: boolean;
   createdAt: number;
   updatedAt: number;
@@ -53,6 +55,7 @@ export interface Attachment {
 export interface SearchOptions {
   query: string;
   includeArchived?: boolean;
+  includeDeleted?: boolean;
 }
 
 export interface TaskCreateInput {

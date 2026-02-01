@@ -31,6 +31,8 @@ export function migrate(db: Database.Database) {
       width INTEGER NOT NULL,
       height INTEGER NOT NULL,
       opacity REAL NOT NULL,
+      sticky_color TEXT NOT NULL DEFAULT '#f6e8a6',
+      sticky_opacity REAL NOT NULL DEFAULT 1,
       always_on_top INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -70,5 +72,13 @@ export function migrate(db: Database.Database) {
   const hasWindowType = columns.some((column) => column.name === "window_type");
   if (!hasWindowType) {
     db.exec("ALTER TABLE window_states ADD COLUMN window_type TEXT NOT NULL DEFAULT 'library'");
+  }
+  const hasStickyColor = columns.some((column) => column.name === "sticky_color");
+  if (!hasStickyColor) {
+    db.exec("ALTER TABLE window_states ADD COLUMN sticky_color TEXT NOT NULL DEFAULT '#f6e8a6'");
+  }
+  const hasStickyOpacity = columns.some((column) => column.name === "sticky_opacity");
+  if (!hasStickyOpacity) {
+    db.exec("ALTER TABLE window_states ADD COLUMN sticky_opacity REAL NOT NULL DEFAULT 1");
   }
 }

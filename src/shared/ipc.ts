@@ -5,7 +5,7 @@ export interface IpcInvokeMap {
   "task:update": (input: TaskUpdateInput) => Task;
   "task:get": (input: { id: string }) => Task | null;
   "task:listRoots": (input: { includeArchived?: boolean; includeDeleted?: boolean }) => Task[];
-  "task:listChildren": (input: { parentId: string }) => Task[];
+  "task:listChildren": (input: { parentId: string; includeArchived?: boolean; includeDeleted?: boolean }) => Task[];
   "task:getAncestors": (input: { taskId: string }) => Task[];
   "task:delete": (input: { id: string }) => void;
   "task:restore": (input: { id: string }) => void;

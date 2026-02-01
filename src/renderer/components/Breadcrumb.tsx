@@ -9,19 +9,23 @@ interface Props {
 
 export default function Breadcrumb({ ancestors, current, onNavigate }: Props) {
   return (
-    <div className="breadcrumb">
+    <div className="flex flex-wrap items-center gap-1 text-xs text-black/60">
       {ancestors.map((task) => (
         <React.Fragment key={task.id}>
-          <button type="button" onClick={() => onNavigate(task.id, true)}>
+          <button
+            type="button"
+            className="rounded-md bg-black/10 px-2 py-1 text-[11px] text-black/70 hover:bg-black/15"
+            onClick={() => onNavigate(task.id, true)}
+          >
             {task.title}
           </button>
-          <span className="slash">/</span>
+          <span className="text-black/40">/</span>
         </React.Fragment>
       ))}
       {current ? (
         <>
-          <span className="current">{current.title}</span>
-          <span className="slash">/</span>
+          <span className="text-[11px] font-semibold text-black/80">{current.title}</span>
+          <span className="text-black/40">/</span>
         </>
       ) : null}
     </div>

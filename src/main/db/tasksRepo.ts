@@ -96,13 +96,18 @@ export function listRootTasks(options: { includeArchived?: boolean; includeDelet
   return rows.map(rowToTask);
 }
 
-export function listChildTasks(parentId: string): Task[] {
+export function listChildTasks(parentId: string, options?: { includeArchived?: boolean; includeDeleted?: boolean }): Task[] {
   const db = getDb();
-  const rows = db
-    .prepare(
-      "SELECT t.* FROM tasks t JOIN edges e ON t.id = e.child_task_id WHERE e.parent_task_id = ? AND t.is_deleted = 0 ORDER BY t.updated_at DESC"
-    )
-    .all(parentId);
+  let sql =
+    "SELECT t.* FROM tasks t JOIN edges e ON t.id = e.child_task_id WHERE e.parent_task_id = ?";
+  if (!options?.includeDeleted) {
+    sql += " AND t.is_deleted = 0";
+  }
+  if (!options?.includeArchived) {
+    sql += " AND t.is_archived = 0";
+  }
+  sql += " ORDER BY t.updated_at DESC";
+  const rows = db.prepare(sql).all(parentId);
   return rows.map(rowToTask);
 }
 
@@ -186,15 +191,17 @@ export function purgeDeletedTasks(olderThanMs: number) {
   tx();
 }
 
-export function searchTasks(options: { query: string; includeArchived?: boolean }): Task[] {
+export function searchTasks(options: { query: string; includeArchived?: boolean; includeDeleted?: boolean }): Task[] {
   const db = getDb();
+  const includeArchived = options.includeArchived ?? false;
+  const includeDeleted = options.includeDeleted ?? false;
   const rows = db
     .prepare(
       `SELECT t.* FROM tasks t
        JOIN tasks_fts f ON t.id = f.task_id
        WHERE tasks_fts MATCH ?
-       AND t.is_deleted = 0
-       ${options.includeArchived ? "" : "AND t.is_archived = 0"}
+       ${includeDeleted ? "" : "AND t.is_deleted = 0"}
+       ${includeArchived ? "" : "AND t.is_archived = 0"}
        ORDER BY t.updated_at DESC`
     )
     .all(options.query);

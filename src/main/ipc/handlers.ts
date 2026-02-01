@@ -39,7 +39,7 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle("task:listChildren", (_event, input: Parameters<IpcInvokeMap["task:listChildren"]>[0]) => {
-    return listChildTasks(input.parentId);
+    return listChildTasks(input.parentId, { includeArchived: input.includeArchived, includeDeleted: input.includeDeleted });
   });
 
   ipcMain.handle("task:getAncestors", (_event, input: Parameters<IpcInvokeMap["task:getAncestors"]>[0]) => {

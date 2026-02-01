@@ -6,6 +6,8 @@ import { listWindowStates, upsertWindowState } from "./db/windowStateRepo";
 
 const SNAP_THRESHOLD = 20;
 const MIN_VISIBLE = 32;
+const DEFAULT_STICKY_COLOR = "#f6e8a6";
+const DEFAULT_STICKY_OPACITY = 1;
 
 const windows = new Map<string, BrowserWindow>();
 const windowStates = new Map<string, WindowState>();
@@ -56,6 +58,26 @@ function snapBounds(bounds: Electron.Rectangle) {
   return { x, y };
 }
 
+function normalizeHexColor(color: string) {
+  const trimmed = color.replace("#", "").trim();
+  if (trimmed.length === 3) {
+    return trimmed
+      .split("")
+      .map((char) => char + char)
+      .join("");
+  }
+  return trimmed.padStart(6, "0").slice(0, 6);
+}
+
+function resolveStickyBackground(color: string, opacity: number) {
+  const safeOpacity = Math.min(1, Math.max(0, opacity));
+  const alpha = Math.round(safeOpacity * 255)
+    .toString(16)
+    .padStart(2, "0");
+  const hex = normalizeHexColor(color);
+  return `#${hex}${alpha}`;
+}
+
 function createDefaultState(windowId: string, rootTaskId: string, windowType: "library" | "sticky"): WindowState {
   const now = Date.now();
   return {
@@ -68,6 +90,8 @@ function createDefaultState(windowId: string, rootTaskId: string, windowType: "l
     width: windowType === "sticky" ? 360 : 1100,
     height: windowType === "sticky" ? 420 : 720,
     opacity: 1,
+    stickyColor: DEFAULT_STICKY_COLOR,
+    stickyOpacity: DEFAULT_STICKY_OPACITY,
     alwaysOnTop: windowType === "sticky",
     createdAt: now,
     updatedAt: now
@@ -92,7 +116,10 @@ export function createTaskWindow(
     resizable: true,
     transparent: false,
     alwaysOnTop: state.alwaysOnTop,
-    backgroundColor: windowType === "sticky" ? "#f6e68b" : "#1c1c1e",
+    backgroundColor:
+      windowType === "sticky"
+        ? resolveStickyBackground(state.stickyColor ?? DEFAULT_STICKY_COLOR, state.stickyOpacity ?? DEFAULT_STICKY_OPACITY)
+        : "#151517",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -158,6 +185,11 @@ export function updateWindowState(partial: Partial<WindowState> & { windowId: st
     }
     if (typeof partial.alwaysOnTop === "boolean") {
       win.setAlwaysOnTop(partial.alwaysOnTop);
+    }
+    if (current.windowType === "sticky" && (typeof partial.stickyColor === "string" || typeof partial.stickyOpacity === "number")) {
+      const color = typeof partial.stickyColor === "string" ? partial.stickyColor : current.stickyColor ?? DEFAULT_STICKY_COLOR;
+      const opacity = typeof partial.stickyOpacity === "number" ? partial.stickyOpacity : current.stickyOpacity ?? DEFAULT_STICKY_OPACITY;
+      win.setBackgroundColor(resolveStickyBackground(color, opacity));
     }
   }
 }

@@ -8,6 +8,8 @@ import type { Task } from "../../shared/types";
 import { TaskLinkNode } from "./TaskLinkNode";
 import Breadcrumb from "./Breadcrumb";
 import { createImageHandlers } from "../utils/editorImages";
+import { CollapsibleListItem } from "../utils/listCollapse";
+import { hexToRgba } from "../utils/color";
 
 interface Props {
   windowId: string;
@@ -20,6 +22,10 @@ interface Props {
   isPinned: boolean;
   onTogglePin: () => void;
   onClose: () => void;
+  stickyColor: string;
+  stickyOpacity: number;
+  onStickyColorChange: (color: string) => void;
+  onStickyOpacityChange: (opacity: number) => void;
 }
 
 export default function StickyView({
@@ -32,7 +38,11 @@ export default function StickyView({
   onShowMenu,
   isPinned,
   onTogglePin,
-  onClose
+  onClose,
+  stickyColor,
+  stickyOpacity,
+  onStickyColorChange,
+  onStickyOpacityChange
 }: Props) {
   const saveTimer = useRef<number | null>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -40,7 +50,7 @@ export default function StickyView({
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimer = useRef<number | null>(null);
   const editor = useEditor({
-    extensions: [StarterKit, TaskList, TaskItem, Image, TaskLinkNode],
+    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItem, Image, TaskLinkNode],
     content: task?.blocks ?? { type: "doc", content: [{ type: "paragraph" }] },
     editable: true,
     editorProps: {
@@ -192,32 +202,72 @@ export default function StickyView({
 
   const today = new Date();
   const footerText = `今天, ${today.getMonth() + 1}月${today.getDate()}日`;
+  const stickyPalette = [
+    { label: "浅黄", value: "#f6e8a6" },
+    { label: "雾白", value: "#f2f1ec" },
+    { label: "浅粉", value: "#f7d6d6" },
+    { label: "浅蓝", value: "#d7e6fb" },
+    { label: "浅绿", value: "#d9f2df" }
+  ];
+  const stickyBackground = hexToRgba(stickyColor, stickyOpacity);
 
   if (!task) {
-    return <div className="sticky-view">加载中...</div>;
+    return <div className="flex h-screen items-center justify-center bg-[#f6e8a6] text-[#2b2b2b]">加载中...</div>;
   }
 
   return (
-    <div className="sticky-view" onContextMenu={handleContextMenu}>
-      <div className="sticky-header">
-        <div className="sticky-title">{task.title}</div>
-        <div className="sticky-actions">
-          <button type="button" className={`sticky-pin ${isPinned ? "active" : ""}`} onClick={onTogglePin}>
+    <div
+      className="sticky-surface flex h-screen flex-col gap-3 px-4 py-3 text-[#2b2b2b]"
+      style={{ backgroundColor: stickyBackground }}
+      onContextMenu={handleContextMenu}
+    >
+      <div className="drag-region flex items-center justify-between gap-3">
+        <div className="text-base font-semibold">{task.title}</div>
+        <div className="no-drag flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-1 rounded-full bg-black/10 px-2 py-1">
+            {stickyPalette.map((color) => (
+              <button
+                key={color.value}
+                type="button"
+                className={`h-4 w-4 rounded-full border ${stickyColor === color.value ? "border-black/60 ring-2 ring-black/40" : "border-black/20"}`}
+                style={{ backgroundColor: color.value }}
+                aria-label={`便签颜色-${color.label}`}
+                onClick={() => onStickyColorChange(color.value)}
+              />
+            ))}
+          </div>
+          <div className="flex items-center gap-2 rounded-full bg-black/10 px-2 py-1">
+            <span>透明度</span>
+            <input
+              type="range"
+              min={0.6}
+              max={1}
+              step={0.05}
+              value={stickyOpacity}
+              className="w-20 accent-[#b67a00]"
+              onChange={(event) => onStickyOpacityChange(Number(event.target.value))}
+            />
+          </div>
+          <button
+            type="button"
+            className={`rounded-full px-2 py-1 ${isPinned ? "bg-black/15 text-black" : "bg-black/5 text-black/70"}`}
+            onClick={onTogglePin}
+          >
             {isPinned ? "📌" : "📍"}
           </button>
-          <button type="button" onClick={() => window.api.invoke("window:minimize", { windowId })}>
+          <button type="button" className="rounded-full px-2 py-1 hover:bg-black/10" onClick={() => window.api.invoke("window:minimize", { windowId })}>
             —
           </button>
-          <button type="button" onClick={onClose}>
+          <button type="button" className="rounded-full px-2 py-1 hover:bg-black/10" onClick={onClose}>
             ×
           </button>
         </div>
       </div>
-      <div className="sticky-nav">
+      <div className="no-drag">
         <Breadcrumb ancestors={ancestors} current={task} onNavigate={onNavigate} />
       </div>
       <div
-        className={`sticky-content ${isScrolling ? "scrolling" : ""}`}
+        className={`sticky-editor scrollbar-hidden cursor-text ${isScrolling ? "sticky-scrollbar-visible" : ""}`}
         onClick={() => {
           editor?.commands.focus();
         }}
@@ -231,7 +281,7 @@ export default function StickyView({
       >
         <EditorContent editor={editor} />
       </div>
-      <div className="sticky-footer">
+      <div className="flex items-center justify-between text-[11px] text-black/50">
         <span>{footerText}</span>
         <span>⋯</span>
       </div>

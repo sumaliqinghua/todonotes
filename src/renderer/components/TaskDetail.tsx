@@ -8,6 +8,7 @@ import type { Task } from "../../shared/types";
 import { TaskLinkNode } from "./TaskLinkNode";
 import type { ContextMenuState } from "./ContextMenu";
 import { createImageHandlers } from "../utils/editorImages";
+import { CollapsibleListItem } from "../utils/listCollapse";
 
 const DEFAULT_BLOCKS = {
   type: "doc",
@@ -39,7 +40,7 @@ export default function TaskDetail({
   const scrollTimer = useRef<number | null>(null);
 
   const editor = useEditor({
-    extensions: [StarterKit, TaskList, TaskItem, Image, TaskLinkNode],
+    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItem, Image, TaskLinkNode],
     content: task?.blocks ?? DEFAULT_BLOCKS,
     editorProps: {
       handlePaste: imageHandlers.handlePaste,
@@ -187,14 +188,14 @@ export default function TaskDetail({
   };
 
   if (!task) {
-    return <div className="task-detail">加载中...</div>;
+    return <div className="flex h-full items-center justify-center rounded-2xl border border-app-border bg-app-panel">加载中...</div>;
   }
 
   return (
-    <div className="task-detail" onContextMenu={handleContextMenu}>
-      <div className="task-title-text">{title}</div>
+    <div className="flex h-full flex-col gap-4 rounded-2xl border border-app-border bg-app-panel p-5 shadow-soft" onContextMenu={handleContextMenu}>
+      <div className="text-lg font-semibold text-app-text">{title}</div>
       <div
-        className={`editor ${isScrolling ? "scrolling" : ""}`}
+        className={`editor-surface scrollbar-hidden cursor-text ${isScrolling ? "scrollbar-visible" : ""}`}
         onClick={() => {
           onShowMenu(null);
           editor?.commands.focus();
