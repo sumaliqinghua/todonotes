@@ -15,7 +15,7 @@ import { createEdge, deleteEdge } from "../db/edgesRepo";
 import { createReminder, deleteReminder, listDueReminders, listRemindersByTask, markReminderDone } from "../db/remindersRepo";
 import { addAttachment, getAttachment, listAttachments } from "../db/attachmentsRepo";
 import { broadcast } from "./events";
-import { createTaskWindow, getWindowById, getWindowState, updateWindowState, loadWindowStates } from "../windowManager";
+import { createTaskWindow, getWindowById, getWindowState, updateWindowState, loadWindowStates, toggleSkinPanel } from "../windowManager";
 
 export function registerIpcHandlers() {
   ipcMain.handle("task:create", (_event, input: Parameters<IpcInvokeMap["task:create"]>[0]) => {
@@ -87,6 +87,20 @@ export function registerIpcHandlers() {
 
   ipcMain.handle("window:updateState", (_event, input: Parameters<IpcInvokeMap["window:updateState"]>[0]) => {
     updateWindowState(input);
+    const hasSettingsUpdate =
+      typeof input.stickyColor === "string" ||
+      typeof input.stickyOpacity === "number" ||
+      typeof input.opacity === "number" ||
+      typeof input.alwaysOnTop === "boolean";
+    if (hasSettingsUpdate) {
+      broadcast("window:settings-updated", {
+        windowId: input.windowId,
+        stickyColor: input.stickyColor,
+        stickyOpacity: input.stickyOpacity,
+        opacity: input.opacity,
+        alwaysOnTop: input.alwaysOnTop
+      });
+    }
   });
 
   ipcMain.handle("window:getAllStates", () => {
@@ -101,6 +115,10 @@ export function registerIpcHandlers() {
   ipcMain.handle("window:close", (_event, input: Parameters<IpcInvokeMap["window:close"]>[0]) => {
     const win = getWindowById(input.windowId);
     win?.close();
+  });
+
+  ipcMain.handle("window:toggleSkinPanel", (_event, input: Parameters<IpcInvokeMap["window:toggleSkinPanel"]>[0]) => {
+    return toggleSkinPanel(input.windowId, input.open);
   });
 
   ipcMain.handle("reminder:create", (_event, input: Parameters<IpcInvokeMap["reminder:create"]>[0]) => {

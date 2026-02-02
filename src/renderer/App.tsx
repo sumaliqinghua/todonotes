@@ -291,11 +291,33 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     const offReminder = window.api.on("reminder:trigger", ({ reminders }) => {
       setReminders(reminders);
     });
+    const offSettings = window.api.on("window:settings-updated", (payload) => {
+      if (payload.windowId !== windowId) {
+        return;
+      }
+      const next: Partial<typeof windowSettings> = {};
+      if (typeof payload.stickyColor === "string") {
+        next.stickyColor = payload.stickyColor;
+      }
+      if (typeof payload.stickyOpacity === "number") {
+        next.stickyOpacity = payload.stickyOpacity;
+      }
+      if (typeof payload.opacity === "number") {
+        next.opacity = payload.opacity;
+      }
+      if (typeof payload.alwaysOnTop === "boolean") {
+        next.alwaysOnTop = payload.alwaysOnTop;
+      }
+      if (Object.keys(next).length > 0) {
+        updateWindowSettings(next);
+      }
+    });
 
     return () => {
       offUpdated();
       offDeleted();
       offReminder();
+      offSettings();
     };
   }, []);
 
@@ -309,7 +331,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
 
   if (windowType === "sticky") {
     return (
-      <div className="min-h-screen" onClick={() => setMenu(null)}>
+      <div className="h-screen overflow-hidden" onClick={() => setMenu(null)}>
         <StickyView
           windowId={windowId}
           task={currentTask}
@@ -327,15 +349,6 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           onClose={() => window.api.invoke("window:close", { windowId })}
           stickyColor={stickyColor}
           stickyOpacity={stickyOpacity}
-          onStickyColorChange={(color) => {
-            updateWindowSettings({ stickyColor: color });
-            window.api.invoke("window:updateState", { windowId, stickyColor: color });
-          }}
-          onStickyOpacityChange={(value) => {
-            const next = Math.min(1, Math.max(0.6, value));
-            updateWindowSettings({ stickyOpacity: next });
-            window.api.invoke("window:updateState", { windowId, stickyOpacity: next });
-          }}
         />
         <ContextMenu menu={menu} onClose={() => setMenu(null)} />
       </div>

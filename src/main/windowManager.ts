@@ -8,13 +8,28 @@ const SNAP_THRESHOLD = 20;
 const MIN_VISIBLE = 32;
 const DEFAULT_STICKY_COLOR = "#f6e8a6";
 const DEFAULT_STICKY_OPACITY = 1;
+const STICKY_MINI_HEIGHT = 36;
+const SKIN_PANEL_SIZE = { width: 320, height: 180 };
+const SKIN_PANEL_OFFSET = 0;
 
 const windows = new Map<string, BrowserWindow>();
 const windowStates = new Map<string, WindowState>();
+const skinPanels = new Map<string, BrowserWindow>();
 
-function getRendererUrl(windowId: string, rootTaskId: string, windowType: "library" | "sticky") {
+function getRendererUrl(
+  windowId: string,
+  rootTaskId: string,
+  windowType: "library" | "sticky" | "skin",
+  extraParams: Record<string, string> = {}
+) {
   const base = process.env.VITE_DEV_SERVER_URL || (app.isPackaged ? "" : "http://localhost:5173");
-  const query = `?windowId=${encodeURIComponent(windowId)}&rootTaskId=${encodeURIComponent(rootTaskId)}&windowType=${encodeURIComponent(windowType)}`;
+  const params = new URLSearchParams({
+    windowId,
+    rootTaskId,
+    windowType,
+    ...extraParams
+  });
+  const query = `?${params.toString()}`;
   if (base) {
     return `${base}${query}`;
   }
@@ -78,6 +93,47 @@ function resolveStickyBackground(color: string, opacity: number) {
   return `#${hex}${alpha}`;
 }
 
+function getSkinPanelBounds(ownerBounds: Electron.Rectangle) {
+  const display = screen.getDisplayMatching(ownerBounds);
+  const area = display.workArea;
+  const areaRight = area.x + area.width;
+  const areaBottom = area.y + area.height;
+  const panelWidth = SKIN_PANEL_SIZE.width;
+  const panelHeight = SKIN_PANEL_SIZE.height;
+  const centeredX = Math.round(ownerBounds.x + (ownerBounds.width - panelWidth) / 2);
+  const candidates = [
+    {
+      x: centeredX,
+      y: ownerBounds.y - panelHeight - SKIN_PANEL_OFFSET
+    },
+    {
+      x: ownerBounds.x + ownerBounds.width + SKIN_PANEL_OFFSET,
+      y: ownerBounds.y + SKIN_PANEL_OFFSET
+    },
+    {
+      x: ownerBounds.x - panelWidth - SKIN_PANEL_OFFSET,
+      y: ownerBounds.y + SKIN_PANEL_OFFSET
+    },
+    {
+      x: ownerBounds.x + ownerBounds.width - panelWidth,
+      y: ownerBounds.y + SKIN_PANEL_OFFSET
+    }
+  ];
+  for (const candidate of candidates) {
+    if (
+      candidate.x >= area.x &&
+      candidate.y >= area.y &&
+      candidate.x + panelWidth <= areaRight &&
+      candidate.y + panelHeight <= areaBottom
+    ) {
+      return { ...candidate, width: panelWidth, height: panelHeight };
+    }
+  }
+  const x = Math.min(Math.max(area.x + 8, centeredX), areaRight - panelWidth - 8);
+  const y = Math.min(Math.max(area.y + 8, ownerBounds.y - panelHeight - SKIN_PANEL_OFFSET), areaBottom - panelHeight - 8);
+  return { x, y, width: panelWidth, height: panelHeight };
+}
+
 function createDefaultState(windowId: string, rootTaskId: string, windowType: "library" | "sticky"): WindowState {
   const now = Date.now();
   return {
@@ -116,6 +172,8 @@ export function createTaskWindow(
     resizable: true,
     transparent: false,
     alwaysOnTop: state.alwaysOnTop,
+    maximizable: windowType !== "sticky",
+    fullscreenable: windowType !== "sticky",
     backgroundColor:
       windowType === "sticky"
         ? resolveStickyBackground(state.stickyColor ?? DEFAULT_STICKY_COLOR, state.stickyOpacity ?? DEFAULT_STICKY_OPACITY)
@@ -128,7 +186,11 @@ export function createTaskWindow(
   });
 
   win.setOpacity(state.opacity);
-  win.setMinimumSize(windowType === "sticky" ? 260 : 800, windowType === "sticky" ? 300 : 520);
+  win.setMinimumSize(windowType === "sticky" ? 260 : 800, windowType === "sticky" ? STICKY_MINI_HEIGHT : 520);
+  if (windowType === "sticky") {
+    win.setFullScreenable(false);
+    win.on("enter-full-screen", () => win.setFullScreen(false));
+  }
   win.loadURL(getRendererUrl(windowId, rootTaskId, windowType));
 
   const updateStateFromWindow = () => {
@@ -159,6 +221,11 @@ export function createTaskWindow(
   win.on("resize", updateStateFromWindow);
   win.on("closed", () => {
     windows.delete(windowId);
+    const panel = skinPanels.get(windowId);
+    if (panel && !panel.isDestroyed()) {
+      panel.close();
+    }
+    skinPanels.delete(windowId);
   });
 
   windows.set(windowId, win);
@@ -171,6 +238,75 @@ export function getWindowById(windowId: string) {
   return windows.get(windowId) ?? null;
 }
 
+export function toggleSkinPanel(ownerWindowId: string, open?: boolean) {
+  const owner = windows.get(ownerWindowId);
+  if (!owner) {
+    return { open: false };
+  }
+  const existing = skinPanels.get(ownerWindowId);
+  const shouldOpen = typeof open === "boolean" ? open : !existing;
+  if (!shouldOpen) {
+    if (existing && !existing.isDestroyed()) {
+      existing.close();
+    }
+    skinPanels.delete(ownerWindowId);
+    return { open: false };
+  }
+  if (existing && !existing.isDestroyed()) {
+    existing.setBounds(getSkinPanelBounds(owner.getBounds()));
+    existing.focus();
+    return { open: true };
+  }
+  const panelId = `skin-${ownerWindowId}`;
+  const bounds = getSkinPanelBounds(owner.getBounds());
+  const panel = new BrowserWindow({
+    ...bounds,
+    frame: false,
+    resizable: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    parent: owner,
+    backgroundColor: "#00000000",
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/index.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  panel.setAlwaysOnTop(true, "pop-up-menu");
+  panel.loadURL(getRendererUrl(panelId, "", "skin", { ownerWindowId }));
+  skinPanels.set(ownerWindowId, panel);
+
+  const updatePosition = () => {
+    if (panel.isDestroyed()) {
+      return;
+    }
+    panel.setBounds(getSkinPanelBounds(owner.getBounds()));
+  };
+  const handleOwnerClosed = () => {
+    if (!panel.isDestroyed()) {
+      panel.close();
+    }
+  };
+  owner.on("move", updatePosition);
+  owner.on("resize", updatePosition);
+  owner.on("closed", handleOwnerClosed);
+  panel.on("blur", () => {
+    if (!panel.isDestroyed()) {
+      panel.close();
+    }
+  });
+  panel.on("closed", () => {
+    owner.removeListener("move", updatePosition);
+    owner.removeListener("resize", updatePosition);
+    owner.removeListener("closed", handleOwnerClosed);
+    skinPanels.delete(ownerWindowId);
+  });
+
+  return { open: true };
+}
+
 export function updateWindowState(partial: Partial<WindowState> & { windowId: string }) {
   const current = windowStates.get(partial.windowId);
   if (!current) {
@@ -180,6 +316,14 @@ export function updateWindowState(partial: Partial<WindowState> & { windowId: st
   windowStates.set(partial.windowId, next);
   const win = windows.get(partial.windowId);
   if (win) {
+    if (typeof partial.width === "number" || typeof partial.height === "number") {
+      const bounds = win.getBounds();
+      const nextWidth = typeof partial.width === "number" ? Math.round(partial.width) : bounds.width;
+      const nextHeight = typeof partial.height === "number" ? Math.round(partial.height) : bounds.height;
+      if (nextWidth !== bounds.width || nextHeight !== bounds.height) {
+        win.setBounds({ ...bounds, width: nextWidth, height: nextHeight });
+      }
+    }
     if (typeof partial.opacity === "number") {
       win.setOpacity(partial.opacity);
     }

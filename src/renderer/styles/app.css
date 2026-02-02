@@ -25,6 +25,7 @@
 @layer components {
   .drag-region {
     -webkit-app-region: drag;
+    user-select: none;
   }
 
   .no-drag {
@@ -91,6 +92,9 @@
 
   .list-toggle {
     @apply inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full text-[10px] text-app-muted;
+    position: absolute;
+    left: -1.6rem;
+    top: 0.15rem;
   }
 
   .list-toggle:hover {
@@ -124,6 +128,14 @@
   list-style-position: outside;
 }
 
+.ProseMirror ul {
+  list-style-type: disc;
+}
+
+.ProseMirror ol {
+  list-style-type: decimal;
+}
+
 .ProseMirror li {
   position: relative;
 }
@@ -138,4 +150,9 @@
 .ProseMirror li[data-collapsed="true"] > ul,
 .ProseMirror li[data-collapsed="true"] > ol {
   display: none;
+}
+
+body.skin-panel-body,
+html.skin-panel-root {
+  background: transparent;
 }

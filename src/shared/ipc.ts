@@ -21,6 +21,7 @@ export interface IpcInvokeMap {
   "window:getAllStates": () => WindowState[];
   "window:minimize": (input: { windowId: string }) => void;
   "window:close": (input: { windowId: string }) => void;
+  "window:toggleSkinPanel": (input: { windowId: string; open?: boolean }) => { open: boolean };
 
   "reminder:create": (input: ReminderCreateInput) => Reminder;
   "reminder:delete": (input: { id: string }) => void;
@@ -38,4 +39,11 @@ export interface IpcEventMap {
   "task:deleted": { taskId: string };
   "reminder:trigger": { reminders: Reminder[] };
   "window:focus-task": { taskId: string };
+  "window:settings-updated": {
+    windowId: string;
+    stickyColor?: string;
+    stickyOpacity?: number;
+    opacity?: number;
+    alwaysOnTop?: boolean;
+  };
 }

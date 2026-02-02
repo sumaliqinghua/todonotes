@@ -24,8 +24,6 @@ interface Props {
   onClose: () => void;
   stickyColor: string;
   stickyOpacity: number;
-  onStickyColorChange: (color: string) => void;
-  onStickyOpacityChange: (opacity: number) => void;
 }
 
 export default function StickyView({
@@ -40,9 +38,7 @@ export default function StickyView({
   onTogglePin,
   onClose,
   stickyColor,
-  stickyOpacity,
-  onStickyColorChange,
-  onStickyOpacityChange
+  stickyOpacity
 }: Props) {
   const saveTimer = useRef<number | null>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -98,8 +94,13 @@ export default function StickyView({
       if (scrollTimer.current) {
         window.clearTimeout(scrollTimer.current);
       }
+      window.api.invoke("window:toggleSkinPanel", { windowId, open: false });
     };
-  }, []);
+  }, [windowId]);
+
+  const handleToggleSkinPanel = () => {
+    window.api.invoke("window:toggleSkinPanel", { windowId });
+  };
 
   useEffect(() => {
     if (!editor) {
@@ -202,13 +203,6 @@ export default function StickyView({
 
   const today = new Date();
   const footerText = `今天, ${today.getMonth() + 1}月${today.getDate()}日`;
-  const stickyPalette = [
-    { label: "浅黄", value: "#f6e8a6" },
-    { label: "雾白", value: "#f2f1ec" },
-    { label: "浅粉", value: "#f7d6d6" },
-    { label: "浅蓝", value: "#d7e6fb" },
-    { label: "浅绿", value: "#d9f2df" }
-  ];
   const stickyBackground = hexToRgba(stickyColor, stickyOpacity);
 
   if (!task) {
@@ -222,32 +216,16 @@ export default function StickyView({
       onContextMenu={handleContextMenu}
     >
       <div className="drag-region flex items-center justify-between gap-3">
-        <div className="text-base font-semibold">{task.title}</div>
+        <div className="select-none text-base font-semibold">{task.title}</div>
         <div className="no-drag flex items-center gap-2 text-xs">
-          <div className="flex items-center gap-1 rounded-full bg-black/10 px-2 py-1">
-            {stickyPalette.map((color) => (
-              <button
-                key={color.value}
-                type="button"
-                className={`h-4 w-4 rounded-full border ${stickyColor === color.value ? "border-black/60 ring-2 ring-black/40" : "border-black/20"}`}
-                style={{ backgroundColor: color.value }}
-                aria-label={`便签颜色-${color.label}`}
-                onClick={() => onStickyColorChange(color.value)}
-              />
-            ))}
-          </div>
-          <div className="flex items-center gap-2 rounded-full bg-black/10 px-2 py-1">
-            <span>透明度</span>
-            <input
-              type="range"
-              min={0.6}
-              max={1}
-              step={0.05}
-              value={stickyOpacity}
-              className="w-20 accent-[#b67a00]"
-              onChange={(event) => onStickyOpacityChange(Number(event.target.value))}
-            />
-          </div>
+          <button
+            type="button"
+            className="h-7 w-7 rounded-full bg-black/10 text-base text-black/70 hover:bg-black/15"
+            aria-label="皮肤"
+            onClick={handleToggleSkinPanel}
+          >
+            🎨
+          </button>
           <button
             type="button"
             className={`rounded-full px-2 py-1 ${isPinned ? "bg-black/15 text-black" : "bg-black/5 text-black/70"}`}
