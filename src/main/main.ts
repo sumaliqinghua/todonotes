@@ -1,7 +1,7 @@
 import { app } from "electron";
 import { initDatabase } from "./db";
 import { createTask, listRootTasks } from "./db/tasksRepo";
-import { createTaskWindow, loadWindowStates, persistAllWindowStates } from "./windowManager";
+import { createTaskWindow, getWindowsByType, loadWindowStates, markAppQuitting, persistAllWindowStates } from "./windowManager";
 import { registerIpcHandlers } from "./ipc/handlers";
 import { checkOverdueOnStartup, startReminderScheduler, stopReminderScheduler } from "./reminderScheduler";
 import { runCleanupOnce, startCleanupJob, stopCleanupJob } from "./cleanup";
@@ -47,6 +47,7 @@ app.whenReady().then(() => {
 });
 
 app.on("before-quit", () => {
+  markAppQuitting();
   persistAllWindowStates();
   stopReminderScheduler();
   stopCleanupJob();
@@ -63,6 +64,18 @@ app.on("activate", () => {
     const { BrowserWindow } = require("electron");
     if (BrowserWindow.getAllWindows().length === 0) {
       restoreWindows();
+      return;
+    }
+    const libraryWindows = getWindowsByType("library");
+    const target = libraryWindows[0];
+    if (target) {
+      if (target.isMinimized()) {
+        target.restore();
+      }
+      if (!target.isVisible()) {
+        target.show();
+      }
+      target.focus();
     }
   }
 });

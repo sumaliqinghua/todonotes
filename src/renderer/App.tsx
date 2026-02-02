@@ -27,14 +27,32 @@ const matchesTabFilter = (task: Task, tab: LibraryTab) => {
   return task.isArchived && !task.isDeleted;
 };
 
-const filterTaskTree = (nodes: TaskTreeNode[], predicate: (task: Task) => boolean): TaskTreeNode[] => {
+const filterTaskTree = (
+  nodes: TaskTreeNode[],
+  predicate: (task: Task, isRoot: boolean) => boolean,
+  depth = 0
+): TaskTreeNode[] => {
   return nodes.reduce<TaskTreeNode[]>((acc, node) => {
-    const filteredChildren = filterTaskTree(node.children, predicate);
-    if (predicate(node.task) || filteredChildren.length > 0) {
+    const filteredChildren = filterTaskTree(node.children, predicate, depth + 1);
+    const includeSelf = predicate(node.task, depth === 0);
+    if (includeSelf || filteredChildren.length > 0) {
       acc.push({ task: node.task, children: filteredChildren });
     }
     return acc;
   }, []);
+};
+
+const shouldIncludeInTree = (task: Task, tab: LibraryTab, isRoot: boolean) => {
+  if (tab === "inProgress") {
+    return isRoot ? !task.isCompleted && !task.isArchived && !task.isDeleted : !task.isArchived && !task.isDeleted;
+  }
+  if (tab === "completed") {
+    return isRoot ? task.isCompleted && !task.isArchived && !task.isDeleted : !task.isArchived && !task.isDeleted;
+  }
+  if (tab === "deleted") {
+    return task.isDeleted;
+  }
+  return task.isArchived && !task.isDeleted;
 };
 
 export default function App({ windowId, rootTaskId, windowType }: Props) {
@@ -105,7 +123,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     for (const root of roots) {
       treeNodes.push(await buildNode(root));
     }
-    const filteredTree = filterTaskTree(treeNodes, (task) => matchesTabFilter(task, tab));
+    const filteredTree = filterTaskTree(treeNodes, (task, isRoot) => shouldIncludeInTree(task, tab, isRoot));
     setLibraryTasks([]);
     setTaskTree(filteredTree);
   };

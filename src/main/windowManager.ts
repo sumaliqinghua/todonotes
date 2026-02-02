@@ -2,7 +2,7 @@ import { app, BrowserWindow, screen } from "electron";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import type { WindowState } from "../shared/types";
-import { listWindowStates, upsertWindowState } from "./db/windowStateRepo";
+import { deleteWindowState, listWindowStates, upsertWindowState } from "./db/windowStateRepo";
 
 const SNAP_THRESHOLD = 20;
 const MIN_VISIBLE = 32;
@@ -15,6 +15,7 @@ const SKIN_PANEL_OFFSET = 0;
 const windows = new Map<string, BrowserWindow>();
 const windowStates = new Map<string, WindowState>();
 const skinPanels = new Map<string, BrowserWindow>();
+let isQuitting = false;
 
 function getRendererUrl(
   windowId: string,
@@ -172,6 +173,7 @@ export function createTaskWindow(
     resizable: true,
     transparent: false,
     alwaysOnTop: state.alwaysOnTop,
+    skipTaskbar: windowType === "sticky",
     maximizable: windowType !== "sticky",
     fullscreenable: windowType !== "sticky",
     backgroundColor:
@@ -226,6 +228,10 @@ export function createTaskWindow(
       panel.close();
     }
     skinPanels.delete(windowId);
+    if (!isQuitting) {
+      windowStates.delete(windowId);
+      deleteWindowState(windowId);
+    }
   });
 
   windows.set(windowId, win);
@@ -236,6 +242,21 @@ export function createTaskWindow(
 
 export function getWindowById(windowId: string) {
   return windows.get(windowId) ?? null;
+}
+
+export function getWindowsByType(windowType: WindowState["windowType"]) {
+  const result: BrowserWindow[] = [];
+  windows.forEach((win, id) => {
+    const state = windowStates.get(id);
+    if (state?.windowType === windowType) {
+      result.push(win);
+    }
+  });
+  return result;
+}
+
+export function markAppQuitting() {
+  isQuitting = true;
 }
 
 export function toggleSkinPanel(ownerWindowId: string, open?: boolean) {

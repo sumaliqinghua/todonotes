@@ -67,3 +67,8 @@ export function listWindowStates(): WindowState[] {
   const rows = db.prepare("SELECT * FROM window_states").all();
   return rows.map(rowToState);
 }
+
+export function deleteWindowState(windowId: string) {
+  const db = getDb();
+  db.prepare("DELETE FROM window_states WHERE window_id = ?").run(windowId);
+}
