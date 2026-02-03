@@ -27,32 +27,15 @@ const matchesTabFilter = (task: Task, tab: LibraryTab) => {
   return task.isArchived && !task.isDeleted;
 };
 
-const filterTaskTree = (
-  nodes: TaskTreeNode[],
-  predicate: (task: Task, isRoot: boolean) => boolean,
-  depth = 0
-): TaskTreeNode[] => {
-  return nodes.reduce<TaskTreeNode[]>((acc, node) => {
-    const filteredChildren = filterTaskTree(node.children, predicate, depth + 1);
-    const includeSelf = predicate(node.task, depth === 0);
-    if (includeSelf || filteredChildren.length > 0) {
-      acc.push({ task: node.task, children: filteredChildren });
+const filterTaskTree = (nodes: TaskTreeNode[], predicate: (task: Task) => boolean): TaskTreeNode[] => {
+  return nodes.flatMap((node) => {
+    const filteredChildren = filterTaskTree(node.children, predicate);
+    const includeSelf = predicate(node.task);
+    if (includeSelf) {
+      return [{ task: node.task, children: filteredChildren }];
     }
-    return acc;
-  }, []);
-};
-
-const shouldIncludeInTree = (task: Task, tab: LibraryTab, isRoot: boolean) => {
-  if (tab === "inProgress") {
-    return isRoot ? !task.isCompleted && !task.isArchived && !task.isDeleted : !task.isArchived && !task.isDeleted;
-  }
-  if (tab === "completed") {
-    return isRoot ? task.isCompleted && !task.isArchived && !task.isDeleted : !task.isArchived && !task.isDeleted;
-  }
-  if (tab === "deleted") {
-    return task.isDeleted;
-  }
-  return task.isArchived && !task.isDeleted;
+    return filteredChildren;
+  });
 };
 
 export default function App({ windowId, rootTaskId, windowType }: Props) {
@@ -123,7 +106,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     for (const root of roots) {
       treeNodes.push(await buildNode(root));
     }
-    const filteredTree = filterTaskTree(treeNodes, (task, isRoot) => shouldIncludeInTree(task, tab, isRoot));
+    const filteredTree = filterTaskTree(treeNodes, (task) => matchesTabFilter(task, tab));
     setLibraryTasks([]);
     setTaskTree(filteredTree);
   };
@@ -376,58 +359,61 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
   const libraryNodes = searchQuery.trim() ? libraryTasks.map((task) => ({ task, children: [] })) : taskTree;
 
   return (
-    <div className="flex h-screen flex-col bg-app-bg" onClick={() => setMenu(null)}>
-      <TitleBar
-        windowId={windowId}
-        title={titleText}
-        alwaysOnTop={alwaysOnTop}
-        opacity={opacity}
-        onToggleAlwaysOnTop={() => {
-          const next = !alwaysOnTop;
-          updateWindowSettings({ alwaysOnTop: next });
-          window.api.invoke("window:updateState", { windowId, alwaysOnTop: next });
-        }}
-        onOpacityChange={(value) => {
-          const next = Math.min(1, Math.max(0.3, value));
-          updateWindowSettings({ opacity: next });
-          window.api.invoke("window:updateState", { windowId, opacity: next });
-        }}
-        showAdvancedControls={false}
-      />
-      <div className="flex flex-1 flex-col gap-4 p-4 lg:flex-row">
-        <div className="w-full shrink-0 lg:w-[320px]">
-          <LibraryPanel
-            nodes={libraryNodes}
-            onOpenTask={(taskId) => handleNavigate(taskId, true)}
-            onCreateRoot={handleCreateRoot}
-            onContextMenu={handleLibraryMenu}
-            searchQuery={searchQuery}
-            onSearchChange={handleSearchChange}
-            onQuickAdd={async (title) => {
-              const task = await window.api.invoke("task:create", { title });
-              await refreshLibrary(searchQuery, libraryTab);
-              await handleNavigate(task.id, true);
-            }}
-            onToggleComplete={async (task) => {
-              await window.api.invoke("task:update", { id: task.id, isCompleted: !task.isCompleted });
-              await refreshLibrary(searchQuery, libraryTab);
-              if (currentTaskIdRef.current === task.id) {
-                await loadTask(task.id);
-              }
-            }}
-            activeTab={libraryTab}
-            onTabChange={(tab) => setLibraryTab(tab)}
-          />
-        </div>
+    <div className="app-shell h-screen" onClick={() => setMenu(null)}>
+      <div className="app-layer flex h-full flex-col">
+        <TitleBar
+          windowId={windowId}
+          title={titleText}
+          alwaysOnTop={alwaysOnTop}
+          opacity={opacity}
+          onToggleAlwaysOnTop={() => {
+            const next = !alwaysOnTop;
+            updateWindowSettings({ alwaysOnTop: next });
+            window.api.invoke("window:updateState", { windowId, alwaysOnTop: next });
+          }}
+          onOpacityChange={(value) => {
+            const next = Math.min(1, Math.max(0.3, value));
+            updateWindowSettings({ opacity: next });
+            window.api.invoke("window:updateState", { windowId, opacity: next });
+          }}
+          showAdvancedControls={false}
+        />
+        <div className="flex flex-1 flex-col gap-5 p-5 lg:flex-row">
+          <div className="w-full shrink-0 lg:w-[340px]">
+            <LibraryPanel
+              nodes={libraryNodes}
+              onOpenTask={(taskId) => handleNavigate(taskId, true)}
+              onCreateRoot={handleCreateRoot}
+              onContextMenu={handleLibraryMenu}
+              searchQuery={searchQuery}
+              onSearchChange={handleSearchChange}
+              onQuickAdd={async (title) => {
+                const task = await window.api.invoke("task:create", { title });
+                await refreshLibrary(searchQuery, libraryTab);
+                await handleNavigate(task.id, true);
+              }}
+              onToggleComplete={async (task) => {
+                await window.api.invoke("task:update", { id: task.id, isCompleted: !task.isCompleted });
+                await refreshLibrary(searchQuery, libraryTab);
+                if (currentTaskIdRef.current === task.id) {
+                  await loadTask(task.id);
+                }
+              }}
+              activeTab={libraryTab}
+              onTabChange={(tab) => setLibraryTab(tab)}
+            />
+          </div>
         <div className="flex-1">
           <TaskDetail
             task={currentTask}
+            ancestors={ancestors}
             onNavigate={handleNavigate}
             onOpenInNewWindow={(taskId) => window.api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
             onUpdateBlocks={(blocks) => currentTask && window.api.invoke("task:update", { id: currentTask.id, blocks })}
             onCreateChildFromBlock={handleCreateChildFromBlock}
             onShowMenu={setMenu}
-          />
+            />
+          </div>
         </div>
       </div>
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />

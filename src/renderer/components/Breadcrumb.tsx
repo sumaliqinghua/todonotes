@@ -5,16 +5,17 @@ interface Props {
   ancestors: Task[];
   current: Task | null;
   onNavigate: (taskId: string, reset: boolean) => void;
+  variant?: "light" | "dark";
 }
 
-export default function Breadcrumb({ ancestors, current, onNavigate }: Props) {
+export default function Breadcrumb({ ancestors, current, onNavigate, variant = "light" }: Props) {
+  const className = variant === "dark" ? "breadcrumb breadcrumb-dark" : "breadcrumb breadcrumb-light";
   return (
-    <div className="flex flex-wrap items-center gap-1 text-xs text-black/60">
+    <div className={className}>
       {ancestors.map((task) => (
         <React.Fragment key={task.id}>
           <button
             type="button"
-            className="rounded-md bg-black/10 px-2 py-1 text-[11px] text-black/70 hover:bg-black/15"
             onClick={() => onNavigate(task.id, true)}
           >
             {task.title}
@@ -24,7 +25,7 @@ export default function Breadcrumb({ ancestors, current, onNavigate }: Props) {
       ))}
       {current ? (
         <>
-          <span className="text-[11px] font-semibold text-black/80">{current.title}</span>
+          <span className="breadcrumb-current">{current.title}</span>
           <span className="text-black/40">/</span>
         </>
       ) : null}

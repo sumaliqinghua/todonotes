@@ -56,8 +56,9 @@ export default function LibraryPanel({
       return (
         <div key={node.task.id}>
           <div
-            className={`flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-sm hover:border-app-border hover:bg-app-panelAlt ${node.task.isCompleted ? "text-app-muted line-through" : "text-app-text"}`}
+            className="task-row"
             style={{ paddingLeft: 12 + depth * 14 }}
+            data-completed={node.task.isCompleted}
             onClick={() => onOpenTask(node.task.id)}
             onContextMenu={(event) => onContextMenu(event, node.task)}
           >
@@ -98,18 +99,17 @@ export default function LibraryPanel({
     { id: "archived" as const, label: "归档" }
   ];
   return (
-    <div className="flex h-full flex-col gap-3 rounded-2xl border border-app-border bg-app-panel p-4 shadow-soft">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold text-app-text">任务</div>
-        <button
-          type="button"
-          className="rounded-full border border-app-border bg-app-panelAlt px-3 py-1 text-xs text-app-text hover:bg-app-panel"
-          onClick={onCreateRoot}
-        >
+    <div className="panel-card panel-enter flex h-full flex-col gap-4 p-4">
+      <div className="panel-header">
+        <div className="flex items-center gap-2">
+          <span className="accent-chip">Library</span>
+          <div className="text-sm font-semibold text-app-text">任务</div>
+        </div>
+        <button type="button" className="ghost-button" onClick={onCreateRoot}>
           新建
         </button>
       </div>
-      <div className="flex items-center gap-2 rounded-xl border border-app-border bg-app-panelAlt px-3 py-2 text-sm text-app-text">
+      <div className="flex items-center gap-2 rounded-2xl border border-app-border/70 bg-app-panelAlt/60 px-3 py-2 text-sm text-app-text">
         <span className="text-app-accent">＋</span>
         <input
           className="flex-1 bg-transparent text-sm text-app-text outline-none placeholder:text-app-muted"
@@ -124,18 +124,13 @@ export default function LibraryPanel({
           }}
         />
       </div>
-      <input
-        className="rounded-xl border border-app-border bg-app-panelAlt px-3 py-2 text-sm text-app-text outline-none placeholder:text-app-muted"
-        placeholder="搜索任务..."
-        value={searchQuery}
-        onChange={(event) => onSearchChange(event.target.value)}
-      />
+      <input className="input-field" placeholder="搜索任务..." value={searchQuery} onChange={(event) => onSearchChange(event.target.value)} />
       <div className="grid grid-cols-4 gap-2">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
-            className={`rounded-xl border px-2 py-1 text-[11px] ${activeTab === tab.id ? "border-app-accent bg-app-panelAlt text-app-text" : "border-app-border bg-app-panelAlt/70 text-app-muted hover:text-app-text"}`}
+            className={`tab-pill ${activeTab === tab.id ? "tab-pill-active" : "tab-pill-idle"}`}
             onClick={() => onTabChange(tab.id)}
           >
             {tab.label}

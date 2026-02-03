@@ -4,22 +4,26 @@ module.exports = {
     extend: {
       colors: {
         app: {
-          bg: "#151517",
-          panel: "#1f1f23",
-          panelAlt: "#26262c",
-          border: "#2f2f36",
-          accent: "#4b84ff",
-          accentStrong: "#2d5bd7",
-          text: "#e6e6ea",
-          muted: "#a1a1aa",
+          bg: "#0f1216",
+          panel: "#171b21",
+          panelAlt: "#212733",
+          border: "#2c3440",
+          accent: "#6fb6ff",
+          accentStrong: "#4b8fe6",
+          accentSoft: "#cfe6ff",
+          highlight: "#7ed9c7",
+          text: "#e6eaf0",
+          muted: "#9aa3b2",
           sticky: "#f6e8a6"
         }
       },
       fontFamily: {
-        sans: ["\"Segoe UI\"", "\"PingFang SC\"", "\"Microsoft YaHei\"", "sans-serif"]
+        sans: ["\"Archivo\"", "\"PingFang SC\"", "\"Microsoft YaHei\"", "sans-serif"],
+        display: ["\"Fraunces\"", "\"Songti SC\"", "serif"]
       },
       boxShadow: {
-        soft: "0 18px 40px rgba(0, 0, 0, 0.35)"
+        soft: "0 18px 40px rgba(0, 0, 0, 0.45)",
+        glow: "0 0 0 1px rgba(111, 182, 255, 0.28), 0 12px 30px rgba(0, 0, 0, 0.45)"
       }
     }
   },

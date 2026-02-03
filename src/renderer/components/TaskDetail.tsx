@@ -5,6 +5,7 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
 import type { Task } from "../../shared/types";
+import Breadcrumb from "./Breadcrumb";
 import { TaskLinkNode } from "./TaskLinkNode";
 import type { ContextMenuState } from "./ContextMenu";
 import { createImageHandlers } from "../utils/editorImages";
@@ -17,6 +18,7 @@ const DEFAULT_BLOCKS = {
 
 interface Props {
   task: Task | null;
+  ancestors: Task[];
   onNavigate: (taskId: string, reset: boolean) => void;
   onOpenInNewWindow: (taskId: string) => void;
   onUpdateBlocks: (blocks: any) => void;
@@ -26,6 +28,7 @@ interface Props {
 
 export default function TaskDetail({
   task,
+  ancestors,
   onNavigate,
   onOpenInNewWindow,
   onUpdateBlocks,
@@ -188,12 +191,18 @@ export default function TaskDetail({
   };
 
   if (!task) {
-    return <div className="flex h-full items-center justify-center rounded-2xl border border-app-border bg-app-panel">加载中...</div>;
+    return <div className="panel-card flex h-full items-center justify-center">加载中...</div>;
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 rounded-2xl border border-app-border bg-app-panel p-5 shadow-soft" onContextMenu={handleContextMenu}>
-      <div className="text-lg font-semibold text-app-text">{title}</div>
+    <div className="panel-card panel-enter flex h-full flex-col gap-4 p-5" onContextMenu={handleContextMenu}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="text-lg font-semibold text-app-text font-display">{title}</div>
+        <div className="text-[11px] text-app-muted">Ctrl/Cmd + Shift + T 转为子任务</div>
+      </div>
+      <div>
+        <Breadcrumb ancestors={ancestors} current={task} onNavigate={onNavigate} variant="dark" />
+      </div>
       <div
         className={`editor-surface scrollbar-hidden cursor-text ${isScrolling ? "scrollbar-visible" : ""}`}
         onClick={() => {

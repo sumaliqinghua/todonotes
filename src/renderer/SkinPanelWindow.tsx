@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from "react";
 
-const DEFAULT_COLOR = "#f6e8a6";
+const DEFAULT_COLOR = "#f6e6b8";
 const DEFAULT_OPACITY = 1;
 const stickyPalette = [
-  { label: "浅黄", value: "#f6e8a6" },
-  { label: "雾白", value: "#f2f1ec" },
-  { label: "浅粉", value: "#f7d6d6" },
-  { label: "浅蓝", value: "#d7e6fb" },
-  { label: "浅绿", value: "#d9f2df" }
+  { label: "浅黄", value: "#f6e6b8" },
+  { label: "雾白", value: "#f1f0e8" },
+  { label: "浅粉", value: "#f3d2c4" },
+  { label: "浅蓝", value: "#d5e5f7" },
+  { label: "浅绿", value: "#d7efd8" }
 ];
 
 interface Props {
@@ -53,13 +53,13 @@ export default function SkinPanelWindow({ ownerWindowId }: Props) {
 
   return (
     <div className="no-drag flex h-screen w-screen items-center justify-center bg-transparent p-3">
-      <div className="w-full rounded-2xl border border-black/10 bg-white/95 p-3 shadow-soft backdrop-blur">
+      <div className="w-full rounded-3xl border border-black/10 bg-white/85 p-3 shadow-soft backdrop-blur">
         <div className="grid grid-cols-5 gap-2">
           {stickyPalette.map((color) => (
             <button
               key={color.value}
               type="button"
-              className={`h-10 w-10 rounded-xl border ${stickyColor === color.value ? "border-black/60 ring-2 ring-black/30" : "border-black/10"}`}
+              className={`h-10 w-10 rounded-2xl border ${stickyColor === color.value ? "border-black/60 ring-2 ring-black/30" : "border-black/10"}`}
               style={{ backgroundColor: color.value }}
               aria-label={`便签颜色-${color.label}`}
               onClick={() => handleColorChange(color.value)}
@@ -74,7 +74,7 @@ export default function SkinPanelWindow({ ownerWindowId }: Props) {
             max={1}
             step={0.05}
             value={stickyOpacity}
-            className="w-28 accent-[#b67a00]"
+            className="w-28 accent-[#c57b1a]"
             onChange={(event) => handleOpacityChange(Number(event.target.value))}
           />
         </div>

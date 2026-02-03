@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,300;100..125,400;100..125,600&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -12,7 +14,7 @@
   }
 
   body {
-    @apply m-0 bg-app-bg text-app-text font-sans;
+    @apply m-0 bg-app-bg text-app-text font-sans antialiased;
   }
 
   button,
@@ -33,27 +35,45 @@
   }
 
   .context-menu {
-    @apply fixed z-50 min-w-[160px] rounded-xl border border-app-border bg-app-panel/95 shadow-soft backdrop-blur;
+    @apply fixed z-50 min-w-[180px] rounded-2xl border border-app-border/80 bg-app-panel/90 p-1 shadow-soft backdrop-blur;
   }
 
   .context-menu-item {
-    @apply w-full rounded-lg px-3 py-2 text-left text-sm text-app-text hover:bg-app-panelAlt;
+    @apply w-full rounded-xl px-3 py-2 text-left text-sm text-app-text transition hover:bg-app-panelAlt/80;
   }
 
   .task-link-block {
-    @apply rounded-xl border border-app-border bg-app-panelAlt px-3 py-2 text-sm font-semibold text-app-text;
+    @apply rounded-full border border-app-accent/50 px-3 py-1 text-sm font-semibold text-app-text;
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    max-width: 100%;
+    background: transparent;
   }
 
   .sticky-surface .task-link-block {
-    @apply border-[#c9a84c] bg-[#fff1b8] text-[#3a2a00];
+    @apply text-[#2b2b2b];
+    border: 1px solid rgba(60, 44, 10, 0.45);
+    background: transparent;
+    box-shadow: none;
+    padding: 2px 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 500;
+    border-radius: 999px;
+    text-decoration: none;
   }
 
   .editor-surface {
-    @apply flex-1 overflow-auto rounded-2xl bg-app-panel/60 px-4 py-3;
+    @apply flex-1 overflow-auto rounded-3xl border border-app-border/60 bg-app-panelAlt/50 px-4 py-4;
+    background-image: radial-gradient(circle at top left, rgba(111, 182, 255, 0.08), transparent 45%),
+      linear-gradient(120deg, rgba(255, 255, 255, 0.04), transparent 40%);
   }
 
   .sticky-editor {
-    @apply flex-1 overflow-auto rounded-2xl bg-black/5 px-3 py-2;
+    @apply flex-1 overflow-auto px-2 py-2;
+    background: transparent;
   }
 
   .scrollbar-hidden::-webkit-scrollbar {
@@ -103,6 +123,153 @@
 
   .sticky-surface .list-toggle:hover {
     @apply bg-black/10 text-black/70;
+  }
+
+  .app-shell {
+    position: relative;
+    overflow: hidden;
+    background: radial-gradient(circle at 15% 20%, rgba(111, 182, 255, 0.14), transparent 45%),
+      radial-gradient(circle at 85% 0%, rgba(126, 217, 199, 0.12), transparent 35%),
+      linear-gradient(160deg, rgba(255, 255, 255, 0.04), transparent 55%),
+      #0f1216;
+  }
+
+  .app-shell::before {
+    content: "";
+    position: absolute;
+    inset: -20%;
+    background: radial-gradient(circle at 25% 30%, rgba(111, 182, 255, 0.16), transparent 50%),
+      radial-gradient(circle at 70% 80%, rgba(126, 217, 199, 0.12), transparent 45%);
+    opacity: 0.65;
+    pointer-events: none;
+  }
+
+  .app-shell::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: linear-gradient(transparent 94%, rgba(255, 255, 255, 0.03) 100%),
+      linear-gradient(90deg, transparent 94%, rgba(255, 255, 255, 0.03) 100%);
+    background-size: 24px 24px;
+    opacity: 0.35;
+    pointer-events: none;
+  }
+
+  .app-layer {
+    position: relative;
+    z-index: 1;
+  }
+
+  .panel-card {
+    @apply rounded-3xl border border-app-border/70 bg-app-panel/85 shadow-soft backdrop-blur;
+  }
+
+  .panel-header {
+    @apply flex items-center justify-between gap-3;
+  }
+
+  .ghost-button {
+    @apply rounded-full border border-app-border/70 bg-app-panelAlt/70 px-3 py-1 text-xs text-app-text transition hover:bg-app-panel;
+  }
+
+  .accent-chip {
+    @apply rounded-full bg-app-accent/15 px-2 py-1 text-[10px] uppercase tracking-[0.24em] text-app-accent;
+  }
+
+  .input-field {
+    @apply rounded-2xl border border-app-border/70 bg-app-panelAlt/60 px-3 py-2 text-sm text-app-text outline-none placeholder:text-app-muted transition focus:border-app-accent/60 focus:ring-2 focus:ring-app-accent/20;
+  }
+
+  .tab-pill {
+    @apply rounded-full border px-3 py-1 text-[11px] tracking-wide transition;
+  }
+
+  .tab-pill-active {
+    @apply border-app-accent bg-app-panelAlt text-app-text shadow-glow;
+  }
+
+  .tab-pill-idle {
+    @apply border-app-border bg-app-panelAlt/50 text-app-muted hover:border-app-accent/40 hover:text-app-text;
+  }
+
+  .task-row {
+    @apply flex items-center gap-2 rounded-2xl border border-transparent px-3 py-2 text-sm transition;
+  }
+
+  .task-row:hover {
+    @apply border-app-border/70 bg-app-panelAlt/70;
+  }
+
+  .task-row[data-completed="true"] {
+    @apply text-app-muted line-through;
+  }
+
+  .panel-enter {
+    animation: panel-rise 420ms ease;
+  }
+
+  .title-display {
+    @apply font-display text-[15px] font-semibold tracking-wide;
+  }
+
+  .sticky-surface {
+    position: relative;
+    background: var(--sticky-base, #f6e8a6);
+    box-shadow: none;
+    border: none;
+  }
+
+  .sticky-header {
+    @apply flex items-center justify-between gap-2 px-1 py-1;
+  }
+
+  .sticky-controls button {
+    @apply rounded-md px-2 py-1 text-[11px] text-black/70 transition;
+  }
+
+  .sticky-chip {
+    @apply rounded-md px-2 py-1 text-[11px] font-semibold;
+  }
+
+  .sticky-chip[data-active="true"] {
+    @apply text-black;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .sticky-chip[data-active="false"] {
+    @apply text-black/60;
+  }
+
+  .breadcrumb {
+    @apply flex flex-wrap items-center gap-1 text-xs;
+  }
+
+  .breadcrumb-light button {
+    @apply rounded-full bg-black/10 px-2 py-1 text-[11px] text-black/70 transition hover:bg-black/15;
+  }
+
+  .breadcrumb-light .breadcrumb-current {
+    @apply text-[11px] font-semibold text-black/80;
+  }
+
+  .breadcrumb-dark button {
+    @apply rounded-full border border-app-border/70 bg-app-panelAlt/60 px-2 py-1 text-[11px] text-app-text transition hover:border-app-accent/40;
+  }
+
+  .breadcrumb-dark .breadcrumb-current {
+    @apply text-[11px] font-semibold text-app-text;
+  }
+}
+
+@keyframes panel-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

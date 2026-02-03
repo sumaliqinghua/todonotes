@@ -211,32 +211,23 @@ export default function StickyView({
 
   return (
     <div
-      className="sticky-surface flex h-screen flex-col gap-3 px-4 py-3 text-[#2b2b2b]"
-      style={{ backgroundColor: stickyBackground }}
+      className="sticky-surface flex h-screen flex-col gap-2 px-3 py-2 text-[#2b2b2b]"
+      style={{ "--sticky-base": stickyBackground } as React.CSSProperties}
       onContextMenu={handleContextMenu}
     >
-      <div className="drag-region flex items-center justify-between gap-3">
-        <div className="select-none text-base font-semibold">{task.title}</div>
-        <div className="no-drag flex items-center gap-2 text-xs">
-          <button
-            type="button"
-            className="h-7 w-7 rounded-full bg-black/10 text-base text-black/70 hover:bg-black/15"
-            aria-label="皮肤"
-            onClick={handleToggleSkinPanel}
-          >
+      <div className="drag-region sticky-header">
+        <div className="select-none text-sm font-semibold">{task.title}</div>
+        <div className="no-drag sticky-controls flex items-center gap-2 text-xs">
+          <button type="button" className="sticky-chip" data-active="false" aria-label="皮肤" onClick={handleToggleSkinPanel}>
             🎨
           </button>
-          <button
-            type="button"
-            className={`rounded-full px-2 py-1 ${isPinned ? "bg-black/15 text-black" : "bg-black/5 text-black/70"}`}
-            onClick={onTogglePin}
-          >
+          <button type="button" className="sticky-chip" data-active={isPinned} onClick={onTogglePin}>
             {isPinned ? "📌" : "📍"}
           </button>
-          <button type="button" className="rounded-full px-2 py-1 hover:bg-black/10" onClick={() => window.api.invoke("window:minimize", { windowId })}>
+          <button type="button" className="sticky-chip" data-active="false" onClick={() => window.api.invoke("window:minimize", { windowId })}>
             —
           </button>
-          <button type="button" className="rounded-full px-2 py-1 hover:bg-black/10" onClick={onClose}>
+          <button type="button" className="sticky-chip" data-active="false" onClick={onClose}>
             ×
           </button>
         </div>

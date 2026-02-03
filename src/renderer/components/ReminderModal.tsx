@@ -15,7 +15,7 @@ export default function ReminderModal({ reminders, onClose, onOpenTask }: Props)
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="w-[320px] rounded-2xl border border-app-border bg-app-panel p-5 shadow-soft"
+        className="panel-card w-[340px] p-5"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="text-sm font-semibold text-app-text">到期提醒</div>
@@ -24,7 +24,7 @@ export default function ReminderModal({ reminders, onClose, onOpenTask }: Props)
             <button
               key={reminder.id}
               type="button"
-              className="rounded-xl border border-app-border bg-app-panelAlt px-3 py-2 text-left text-sm text-app-text hover:bg-app-panel"
+              className="rounded-2xl border border-app-border/70 bg-app-panelAlt/60 px-3 py-2 text-left text-sm text-app-text transition hover:border-app-accent/40 hover:bg-app-panel"
               onClick={() => {
                 onOpenTask(reminder.taskId);
                 onClose();
@@ -34,7 +34,11 @@ export default function ReminderModal({ reminders, onClose, onOpenTask }: Props)
             </button>
           ))}
         </div>
-        <button type="button" className="mt-4 w-full rounded-xl bg-app-panelAlt px-3 py-2 text-sm text-app-text hover:bg-app-panel" onClick={onClose}>
+        <button
+          type="button"
+          className="mt-4 w-full rounded-2xl border border-app-border/70 bg-app-panelAlt/70 px-3 py-2 text-sm text-app-text transition hover:border-app-accent/40 hover:bg-app-panel"
+          onClick={onClose}
+        >
           关闭
         </button>
       </div>

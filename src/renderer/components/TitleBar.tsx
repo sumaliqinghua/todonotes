@@ -20,13 +20,13 @@ export default function TitleBar({
   showAdvancedControls = true
 }: Props) {
   return (
-    <div className="drag-region flex h-12 items-center border-b border-app-border bg-app-panel px-4">
+    <div className="drag-region flex h-12 items-center border-b border-app-border/70 bg-app-panel/85 px-4 backdrop-blur">
       <div className="flex w-full items-center justify-between gap-3">
-        <div className="truncate text-sm font-semibold text-app-text">{title}</div>
+        <div className="title-display truncate text-app-text">{title}</div>
         <div className="no-drag flex items-center gap-2 text-xs text-app-muted">
           {showAdvancedControls ? (
             <>
-              <label className="flex items-center gap-2 rounded-full border border-app-border bg-app-panelAlt px-3 py-1 text-[11px] text-app-text">
+              <label className="flex items-center gap-2 rounded-full border border-app-border/70 bg-app-panelAlt/70 px-3 py-1 text-[11px] text-app-text">
                 透明度
                 <input
                   type="range"
@@ -40,7 +40,7 @@ export default function TitleBar({
               </label>
               <button
                 type="button"
-                className={`rounded-full border border-app-border px-3 py-1 text-[11px] ${alwaysOnTop ? "bg-app-accent text-white" : "bg-app-panelAlt text-app-text"}`}
+                className={`rounded-full border px-3 py-1 text-[11px] transition ${alwaysOnTop ? "border-app-accent bg-app-accent text-app-bg shadow-glow" : "border-app-border/70 bg-app-panelAlt/70 text-app-text hover:border-app-accent/40"}`}
                 onClick={onToggleAlwaysOnTop}
               >
                 置顶
@@ -49,14 +49,14 @@ export default function TitleBar({
           ) : null}
           <button
             type="button"
-            className="h-7 w-7 rounded-full border border-app-border bg-app-panelAlt text-base text-app-text hover:bg-app-panel"
+            className="h-8 w-8 rounded-full border border-app-border/70 bg-app-panelAlt/70 text-base text-app-text transition hover:border-app-accent/40 hover:bg-app-panel"
             onClick={() => window.api.invoke("window:minimize", { windowId })}
           >
             —
           </button>
           <button
             type="button"
-            className="h-7 w-7 rounded-full border border-app-border bg-app-panelAlt text-base text-app-text hover:bg-app-panel"
+            className="h-8 w-8 rounded-full border border-app-border/70 bg-app-panelAlt/70 text-base text-app-text transition hover:border-app-accent/40 hover:bg-app-panel"
             onClick={() => window.api.invoke("window:close", { windowId })}
           >
             ×
