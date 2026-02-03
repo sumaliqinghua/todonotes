@@ -2,7 +2,8 @@ import { Node } from "@tiptap/core";
 
 export const TaskLinkNode = Node.create({
   name: "taskLink",
-  group: "block",
+  group: "inline",
+  inline: true,
   atom: true,
   selectable: true,
   draggable: false,

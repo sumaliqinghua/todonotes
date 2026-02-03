@@ -477,6 +477,13 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
               onOpenTask={(taskId) => handleNavigate(taskId, true)}
               onCreateRoot={handleCreateRoot}
               onContextMenu={handleLibraryMenu}
+              onRenameTask={async (task, title) => {
+                await api.invoke("task:update", { id: task.id, title });
+                await refreshLibrary(searchQuery, libraryTab);
+                if (currentTaskIdRef.current === task.id) {
+                  await loadTask(task.id);
+                }
+              }}
               searchQuery={searchQuery}
               onSearchChange={handleSearchChange}
               onQuickAdd={async (title) => {

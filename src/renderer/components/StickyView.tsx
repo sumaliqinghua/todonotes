@@ -79,10 +79,15 @@ export default function StickyView({
   });
 
   useEffect(() => {
-    if (editor && task) {
-      editor.commands.setContent(task.blocks, false);
+    if (!editor || !task) {
+      return;
     }
-  }, [editor, task?.id]);
+    const next = task.blocks ?? { type: "doc", content: [{ type: "paragraph" }] };
+    const current = editor.getJSON();
+    if (JSON.stringify(current) !== JSON.stringify(next) && !editor.isFocused) {
+      editor.commands.setContent(next, false);
+    }
+  }, [editor, task?.id, task?.blocks]);
 
   useEffect(() => {
     editorRef.current = editor ?? null;
@@ -123,19 +128,14 @@ export default function StickyView({
       return;
     }
     const { state } = editor;
-    const { $from } = state.selection;
-    let depth = $from.depth;
-    let node = $from.node(depth);
-    while (depth > 0 && !["paragraph", "heading"].includes(node.type.name)) {
-      depth -= 1;
-      node = $from.node(depth);
-    }
-    if (!node || !["paragraph", "heading"].includes(node.type.name)) {
-      alert("当前块类型暂不支持转换");
+    const { from, to, $from, $to } = state.selection;
+    const rawText = state.doc.textBetween(from, to, "\n").trim();
+    const isSingleLine = $from.sameParent($to) && !rawText.includes("\n");
+    if (!isSingleLine) {
+      alert("只能转换单行文本");
       return;
     }
-    const text = node.textContent.trim() || "未命名任务";
-    const pos = $from.before(depth);
+    const text = rawText || "未命名任务";
     const created = await onCreateChildFromBlock(text);
     if (!created.taskId) {
       return;
@@ -143,11 +143,14 @@ export default function StickyView({
     editor
       .chain()
       .focus()
-      .deleteRange({ from: pos, to: pos + node.nodeSize })
-      .insertContentAt(pos, {
-        type: "taskLink",
-        attrs: { taskId: created.taskId, title: created.title }
-      })
+      .deleteRange({ from, to })
+      .insertContentAt(from, [
+        {
+          type: "taskLink",
+          attrs: { taskId: created.taskId, title: created.title }
+        },
+        { type: "text", text: " " }
+      ])
       .run();
   };
 
@@ -222,6 +225,10 @@ export default function StickyView({
       return;
     }
 
+    const { state } = editor;
+    const { from, to, $from, $to } = state.selection;
+    const rawText = state.doc.textBetween(from, to, "\n").trim();
+    const canConvert = $from.sameParent($to) && !rawText.includes("\n");
     onShowMenu({
       x: event.clientX,
       y: event.clientY,
@@ -232,10 +239,14 @@ export default function StickyView({
             void appendChildTaskToEnd();
           }
         },
-        {
-          label: "转换为子任务",
-          action: convertSelectionToChild
-        }
+        ...(canConvert
+          ? [
+              {
+                label: "转换为子任务",
+                action: convertSelectionToChild
+              }
+            ]
+          : [])
       ]
     });
   };

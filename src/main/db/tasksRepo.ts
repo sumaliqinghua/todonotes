@@ -195,15 +195,27 @@ export function searchTasks(options: { query: string; includeArchived?: boolean;
   const db = getDb();
   const includeArchived = options.includeArchived ?? false;
   const includeDeleted = options.includeDeleted ?? false;
-  const rows = db
-    .prepare(
-      `SELECT t.* FROM tasks t
-       JOIN tasks_fts f ON t.id = f.task_id
-       WHERE tasks_fts MATCH ?
+  const escaped = options.query.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+  const likeQuery = `%${escaped}%`;
+  const sql = `SELECT t.* FROM tasks t
+       LEFT JOIN tasks_fts f ON t.id = f.task_id
+       WHERE (tasks_fts MATCH ? OR t.title LIKE ? ESCAPE '\\')
        ${includeDeleted ? "" : "AND t.is_deleted = 0"}
        ${includeArchived ? "" : "AND t.is_archived = 0"}
-       ORDER BY t.updated_at DESC`
-    )
-    .all(options.query);
-  return rows.map(rowToTask);
+       ORDER BY t.updated_at DESC`;
+  try {
+    const rows = db.prepare(sql).all(options.query, likeQuery);
+    return rows.map(rowToTask);
+  } catch (error) {
+    const fallback = db
+      .prepare(
+        `SELECT t.* FROM tasks t
+         WHERE t.title LIKE ? ESCAPE '\\'
+         ${includeDeleted ? "" : "AND t.is_deleted = 0"}
+         ${includeArchived ? "" : "AND t.is_archived = 0"}
+         ORDER BY t.updated_at DESC`
+      )
+      .all(likeQuery);
+    return fallback.map(rowToTask);
+  }
 }

@@ -11,6 +11,7 @@ interface Props {
   onOpenTask: (taskId: string) => void;
   onCreateRoot: () => void;
   onContextMenu: (event: React.MouseEvent, task: Task) => void;
+  onRenameTask: (task: Task, title: string) => void;
   searchQuery: string;
   onSearchChange: (value: string) => void;
   onQuickAdd: (title: string) => void;
@@ -24,6 +25,7 @@ export default function LibraryPanel({
   onOpenTask,
   onCreateRoot,
   onContextMenu,
+  onRenameTask,
   searchQuery,
   onSearchChange,
   onQuickAdd,
@@ -33,6 +35,8 @@ export default function LibraryPanel({
 }: Props) {
   const [quickInput, setQuickInput] = React.useState("");
   const [collapsedIds, setCollapsedIds] = React.useState<Set<string>>(new Set());
+  const [editingTaskId, setEditingTaskId] = React.useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = React.useState("");
 
   const toggleCollapse = (taskId: string) => {
     setCollapsedIds((prev) => {
@@ -53,13 +57,18 @@ export default function LibraryPanel({
     return items.map((node) => {
       const hasChildren = node.children.length > 0;
       const collapsed = collapsedIds.has(node.task.id);
+      const isEditing = editingTaskId === node.task.id;
       return (
         <div key={node.task.id}>
           <div
             className="task-row"
             style={{ paddingLeft: 12 + depth * 14 }}
             data-completed={node.task.isCompleted}
-            onClick={() => onOpenTask(node.task.id)}
+            onClick={() => {
+              if (!isEditing) {
+                onOpenTask(node.task.id);
+              }
+            }}
             onContextMenu={(event) => onContextMenu(event, node.task)}
           >
             <button
@@ -84,7 +93,45 @@ export default function LibraryPanel({
               }}
               onClick={(event) => event.stopPropagation()}
             />
-            <span className="truncate">{node.task.title}</span>
+            {isEditing ? (
+              <input
+                className="input-field h-7 w-full max-w-[220px]"
+                value={editingTitle}
+                autoFocus
+                onChange={(event) => setEditingTitle(event.target.value)}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    const next = editingTitle.trim();
+                    if (next && next !== node.task.title) {
+                      onRenameTask(node.task, next);
+                    }
+                    setEditingTaskId(null);
+                  }
+                  if (event.key === "Escape") {
+                    setEditingTaskId(null);
+                  }
+                }}
+                onBlur={() => {
+                  const next = editingTitle.trim();
+                  if (next && next !== node.task.title) {
+                    onRenameTask(node.task, next);
+                  }
+                  setEditingTaskId(null);
+                }}
+              />
+            ) : (
+              <span
+                className="truncate"
+                onDoubleClick={(event) => {
+                  event.stopPropagation();
+                  setEditingTaskId(node.task.id);
+                  setEditingTitle(node.task.title);
+                }}
+              >
+                {node.task.title}
+              </span>
+            )}
           </div>
           {!collapsed ? renderNodes(node.children, depth + 1) : null}
         </div>
