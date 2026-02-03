@@ -18,6 +18,7 @@ interface Props {
   onNavigate: (taskId: string, reset: boolean) => void;
   onOpenInNewWindow: (taskId: string) => void;
   onCreateChildFromBlock: (title: string) => Promise<{ taskId: string; title: string }>;
+  onRequestTitle: (options: { title: string; placeholder?: string; defaultValue?: string }) => Promise<string | null>;
   onShowMenu: (menu: { x: number; y: number; items: { label: string; action: () => void }[] } | null) => void;
   isPinned: boolean;
   onTogglePin: () => void;
@@ -33,6 +34,7 @@ export default function StickyView({
   onNavigate,
   onOpenInNewWindow,
   onCreateChildFromBlock,
+  onRequestTitle,
   onShowMenu,
   isPinned,
   onTogglePin,
@@ -149,6 +151,33 @@ export default function StickyView({
       .run();
   };
 
+  const appendChildTaskToEnd = async () => {
+    if (!editor || !task) {
+      return;
+    }
+    try {
+      const title =
+        (await onRequestTitle({ title: "子任务标题", placeholder: "请输入子任务标题" })) ??
+        `新子任务 ${new Date().toLocaleTimeString()}`;
+      const created = await onCreateChildFromBlock(title);
+      if (!created.taskId) {
+        return;
+      }
+      const endPos = editor.state.doc.content.size;
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(endPos, {
+          type: "taskLink",
+          attrs: { taskId: created.taskId, title: created.title }
+        })
+        .run();
+    } catch (error) {
+      console.error("添加子任务失败", error);
+      alert("添加子任务失败，请打开控制台查看错误");
+    }
+  };
+
   const handleContextMenu = (event: React.MouseEvent) => {
     event.preventDefault();
     if (!editor || !task) {
@@ -185,6 +214,10 @@ export default function StickyView({
           }
         });
       }
+      items.unshift({
+        label: "添加子任务",
+        action: appendChildTaskToEnd
+      });
       onShowMenu({ x: event.clientX, y: event.clientY, items });
       return;
     }
@@ -193,6 +226,12 @@ export default function StickyView({
       x: event.clientX,
       y: event.clientY,
       items: [
+        {
+          label: "添加子任务",
+          action: () => {
+            void appendChildTaskToEnd();
+          }
+        },
         {
           label: "转换为子任务",
           action: convertSelectionToChild

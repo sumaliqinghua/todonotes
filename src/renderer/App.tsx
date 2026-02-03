@@ -6,6 +6,7 @@ import ReminderModal from "./components/ReminderModal";
 import StickyView from "./components/StickyView";
 import TaskDetail from "./components/TaskDetail";
 import TitleBar from "./components/TitleBar";
+import PromptModal from "./components/PromptModal";
 import { useAppStore, type LibraryTab } from "./store/useAppStore";
 
 interface Props {
@@ -27,18 +28,74 @@ const matchesTabFilter = (task: Task, tab: LibraryTab) => {
   return task.isArchived && !task.isDeleted;
 };
 
-const filterTaskTree = (nodes: TaskTreeNode[], predicate: (task: Task) => boolean): TaskTreeNode[] => {
+const shouldShowInTab = (task: Task, tab: LibraryTab) => {
+  if (tab === "deleted") {
+    return task.isDeleted;
+  }
+  if (tab === "archived") {
+    return task.isArchived && !task.isDeleted;
+  }
+  return !task.isArchived && !task.isDeleted;
+};
+
+const shouldIncludeRoot = (task: Task, tab: LibraryTab) => {
+  if (tab === "inProgress") {
+    return !task.isCompleted && !task.isArchived && !task.isDeleted;
+  }
+  if (tab === "completed") {
+    return task.isCompleted && !task.isArchived && !task.isDeleted;
+  }
+  if (tab === "deleted") {
+    return task.isDeleted;
+  }
+  return task.isArchived && !task.isDeleted;
+};
+
+const filterTreeNode = (node: TaskTreeNode, tab: LibraryTab): TaskTreeNode | null => {
+  if (!shouldShowInTab(node.task, tab)) {
+    return null;
+  }
+  const children = node.children
+    .map((child) => filterTreeNode(child, tab))
+    .filter((child): child is TaskTreeNode => Boolean(child));
+  return { task: node.task, children };
+};
+
+const filterTaskTreeByTab = (nodes: TaskTreeNode[], tab: LibraryTab): TaskTreeNode[] => {
   return nodes.flatMap((node) => {
-    const filteredChildren = filterTaskTree(node.children, predicate);
-    const includeSelf = predicate(node.task);
-    if (includeSelf) {
-      return [{ task: node.task, children: filteredChildren }];
+    if (!shouldIncludeRoot(node.task, tab)) {
+      return [];
     }
-    return filteredChildren;
+    const filtered = filterTreeNode(node, tab);
+    return filtered ? [filtered] : [];
   });
 };
 
+const normalizeBlocks = (blocks: Task["blocks"]) => {
+  if (blocks && typeof blocks === "object" && !Array.isArray(blocks)) {
+    const doc = blocks as { type?: string; content?: unknown };
+    if (doc.type === "doc") {
+      return {
+        ...doc,
+        content: Array.isArray(doc.content) ? doc.content : []
+      };
+    }
+  }
+  return { type: "doc", content: [{ type: "paragraph" }] };
+};
+
+const appendChildLinkToBlocks = (blocks: Task["blocks"], child: { taskId: string; title: string }) => {
+  const doc = normalizeBlocks(blocks) as { type: string; content: unknown[] };
+  const nextContent = doc.content.slice();
+  nextContent.push({
+    type: "taskLink",
+    attrs: { taskId: child.taskId, title: child.title }
+  });
+  return { ...doc, content: nextContent };
+};
+
 export default function App({ windowId, rootTaskId, windowType }: Props) {
+  const api = window.api;
   const {
     navPath,
     currentTask,
@@ -59,8 +116,17 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     setLibraryTab,
     updateWindowSettings
   } = useAppStore();
+  if (!api) {
+    return <div className="panel-card flex h-full items-center justify-center">请在桌面应用中运行</div>;
+  }
   const { opacity, alwaysOnTop, stickyColor, stickyOpacity } = windowSettings;
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const [promptState, setPromptState] = useState<{
+    title: string;
+    placeholder?: string;
+    defaultValue?: string;
+    resolve: (value: string | null) => void;
+  } | null>(null);
   const searchTimer = useRef<number | null>(null);
   const currentTaskIdRef = useRef<string | null>(null);
   const navPathRef = useRef<string[]>([]);
@@ -73,25 +139,31 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     navPathRef.current = navPath;
   }, [navPath]);
 
+  const requestTitle = (options: { title: string; placeholder?: string; defaultValue?: string }) => {
+    return new Promise<string | null>((resolve) => {
+      setPromptState({ ...options, resolve });
+    });
+  };
+
   const refreshLibrary = async (query = searchQuery, tab = libraryTab) => {
     const trimmed = query.trim();
     if (trimmed) {
       const includeArchived = tab === "archived" || tab === "deleted";
       const includeDeleted = tab === "deleted";
-      const results = await window.api.invoke("task:search", { query: trimmed, includeArchived, includeDeleted });
+      const results = await api.invoke("task:search", { query: trimmed, includeArchived, includeDeleted });
       const filtered = results.filter((task) => matchesTabFilter(task, tab));
       setLibraryTasks(filtered);
       setTaskTree([]);
       return;
     }
-    const roots = await window.api.invoke("task:listRoots", { includeArchived: true, includeDeleted: true });
+    const roots = await api.invoke("task:listRoots", { includeArchived: true, includeDeleted: true });
     const visited = new Set<string>();
     const buildNode = async (task: Task): Promise<TaskTreeNode> => {
       if (visited.has(task.id)) {
         return { task, children: [] };
       }
       visited.add(task.id);
-      const children = await window.api.invoke("task:listChildren", {
+      const children = await api.invoke("task:listChildren", {
         parentId: task.id,
         includeArchived: true,
         includeDeleted: true
@@ -106,24 +178,24 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     for (const root of roots) {
       treeNodes.push(await buildNode(root));
     }
-    const filteredTree = filterTaskTree(treeNodes, (task) => matchesTabFilter(task, tab));
+    const filteredTree = filterTaskTreeByTab(treeNodes, tab);
     setLibraryTasks([]);
     setTaskTree(filteredTree);
   };
 
   const loadTask = async (taskId: string) => {
-    const task = await window.api.invoke("task:get", { id: taskId });
+    const task = await api.invoke("task:get", { id: taskId });
     if (!task) {
       setCurrentTask(null);
       return;
     }
-    const chain = await window.api.invoke("task:getAncestors", { taskId });
+    const chain = await api.invoke("task:getAncestors", { taskId });
     setCurrentTask(task);
     setAncestors(chain);
   };
 
   const syncWindowState = (nextPath: string[]) => {
-    window.api.invoke("window:updateState", {
+    api.invoke("window:updateState", {
       windowId,
       rootTaskId: nextPath[0] ?? rootTaskId,
       navPathTaskIds: nextPath
@@ -132,7 +204,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
 
   const handleNavigate = async (taskId: string, reset: boolean) => {
     if (reset) {
-      const chain = await window.api.invoke("task:getAncestors", { taskId });
+      const chain = await api.invoke("task:getAncestors", { taskId });
       const nextPath = [...chain.map((task) => task.id), taskId];
       setNavPath(nextPath);
       syncWindowState(nextPath);
@@ -157,9 +229,9 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
   };
 
   const handleCreateRoot = async () => {
-    const input = window.prompt("新任务标题");
+    const input = await requestTitle({ title: "新任务标题", placeholder: "请输入任务标题" });
     const title = input && input.trim() ? input.trim() : `新任务 ${new Date().toLocaleTimeString()}`;
-    const task = await window.api.invoke("task:create", { title });
+    const task = await api.invoke("task:create", { title });
     await refreshLibrary();
     await handleNavigate(task.id, true);
   };
@@ -171,7 +243,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           {
             label: "从回收站恢复",
             action: async () => {
-              await window.api.invoke("task:restore", { id: task.id });
+              await api.invoke("task:restore", { id: task.id });
               await refreshLibrary();
             }
           }
@@ -182,31 +254,50 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       y: event.clientY,
       items: [
         {
+          label: "添加子任务",
+          action: async () => {
+            try {
+              const input = await requestTitle({ title: "子任务标题", placeholder: "请输入子任务标题" });
+              const title = input?.trim() || `新子任务 ${new Date().toLocaleTimeString()}`;
+              const child = await api.invoke("task:createFromBlock", { parentId: task.id, title });
+              const parent = await api.invoke("task:get", { id: task.id });
+              if (parent) {
+                const nextBlocks = appendChildLinkToBlocks(parent.blocks, { taskId: child.id, title: child.title });
+                await api.invoke("task:update", { id: task.id, blocks: nextBlocks });
+              }
+              await refreshLibrary();
+            } catch (error) {
+              console.error("添加子任务失败", error);
+              alert("添加子任务失败，请打开控制台查看错误");
+            }
+          }
+        },
+        {
           label: "打开置顶便签",
-          action: () => window.api.invoke("window:open", { rootTaskId: task.id, windowType: "sticky" })
+          action: () => api.invoke("window:open", { rootTaskId: task.id, windowType: "sticky" })
         },
         {
           label: task.isArchived ? "取消归档" : "归档",
           action: async () => {
-            await window.api.invoke("task:update", { id: task.id, isArchived: !task.isArchived });
+            await api.invoke("task:update", { id: task.id, isArchived: !task.isArchived });
             await refreshLibrary();
           }
         },
         {
           label: task.isCompleted ? "标记为未完成" : "标记为完成",
           action: async () => {
-            await window.api.invoke("task:update", { id: task.id, isCompleted: !task.isCompleted });
+            await api.invoke("task:update", { id: task.id, isCompleted: !task.isCompleted });
             await refreshLibrary();
           }
         },
         {
           label: "重命名",
           action: async () => {
-            const title = window.prompt("新的标题", task.title)?.trim();
+            const title = (await requestTitle({ title: "新的标题", defaultValue: task.title }))?.trim();
             if (!title) {
               return;
             }
-            await window.api.invoke("task:update", { id: task.id, title });
+            await api.invoke("task:update", { id: task.id, title });
             await refreshLibrary();
             if (currentTaskId === task.id) {
               await loadTask(task.id);
@@ -216,7 +307,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
         {
           label: "删除到回收站",
           action: async () => {
-            await window.api.invoke("task:delete", { id: task.id });
+            await api.invoke("task:delete", { id: task.id });
             await refreshLibrary();
           }
         },
@@ -239,14 +330,14 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     if (!currentTask) {
       return { taskId: "", title: "" };
     }
-    const task = await window.api.invoke("task:createFromBlock", { parentId: currentTask.id, title });
+    const task = await api.invoke("task:createFromBlock", { parentId: currentTask.id, title });
     await loadTask(currentTask.id);
     return { taskId: task.id, title: task.title };
   };
 
   useEffect(() => {
     const init = async () => {
-      const state = await window.api.invoke("window:getState", { windowId });
+      const state = await api.invoke("window:getState", { windowId });
       if (state) {
         setNavPath(state.navPathTaskIds);
         updateWindowSettings({
@@ -269,7 +360,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
 
     init();
 
-    const offUpdated = window.api.on("task:updated", ({ taskId }) => {
+    const offUpdated = api.on("task:updated", ({ taskId }) => {
       if (taskId === currentTaskIdRef.current) {
         loadTask(taskId);
       }
@@ -279,7 +370,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       }
     });
 
-    const offDeleted = window.api.on("task:deleted", ({ taskId }) => {
+    const offDeleted = api.on("task:deleted", ({ taskId }) => {
       if (taskId === currentTaskIdRef.current) {
         handleBackFromRef();
       }
@@ -289,10 +380,10 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       }
     });
 
-    const offReminder = window.api.on("reminder:trigger", ({ reminders }) => {
+    const offReminder = api.on("reminder:trigger", ({ reminders }) => {
       setReminders(reminders);
     });
-    const offSettings = window.api.on("window:settings-updated", (payload) => {
+    const offSettings = api.on("window:settings-updated", (payload) => {
       if (payload.windowId !== windowId) {
         return;
       }
@@ -338,16 +429,17 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           task={currentTask}
           ancestors={ancestors}
           onNavigate={handleNavigate}
-          onOpenInNewWindow={(taskId) => window.api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
+          onOpenInNewWindow={(taskId) => api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
           onCreateChildFromBlock={handleCreateChildFromBlock}
+          onRequestTitle={requestTitle}
           onShowMenu={setMenu}
           isPinned={alwaysOnTop}
           onTogglePin={() => {
             const next = !alwaysOnTop;
             updateWindowSettings({ alwaysOnTop: next });
-            window.api.invoke("window:updateState", { windowId, alwaysOnTop: next });
+            api.invoke("window:updateState", { windowId, alwaysOnTop: next });
           }}
-          onClose={() => window.api.invoke("window:close", { windowId })}
+          onClose={() => api.invoke("window:close", { windowId })}
           stickyColor={stickyColor}
           stickyOpacity={stickyOpacity}
         />
@@ -369,12 +461,12 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           onToggleAlwaysOnTop={() => {
             const next = !alwaysOnTop;
             updateWindowSettings({ alwaysOnTop: next });
-            window.api.invoke("window:updateState", { windowId, alwaysOnTop: next });
+            api.invoke("window:updateState", { windowId, alwaysOnTop: next });
           }}
           onOpacityChange={(value) => {
             const next = Math.min(1, Math.max(0.3, value));
             updateWindowSettings({ opacity: next });
-            window.api.invoke("window:updateState", { windowId, opacity: next });
+            api.invoke("window:updateState", { windowId, opacity: next });
           }}
           showAdvancedControls={false}
         />
@@ -388,12 +480,12 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
               searchQuery={searchQuery}
               onSearchChange={handleSearchChange}
               onQuickAdd={async (title) => {
-                const task = await window.api.invoke("task:create", { title });
+                const task = await api.invoke("task:create", { title });
                 await refreshLibrary(searchQuery, libraryTab);
                 await handleNavigate(task.id, true);
               }}
               onToggleComplete={async (task) => {
-                await window.api.invoke("task:update", { id: task.id, isCompleted: !task.isCompleted });
+                await api.invoke("task:update", { id: task.id, isCompleted: !task.isCompleted });
                 await refreshLibrary(searchQuery, libraryTab);
                 if (currentTaskIdRef.current === task.id) {
                   await loadTask(task.id);
@@ -408,15 +500,32 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             task={currentTask}
             ancestors={ancestors}
             onNavigate={handleNavigate}
-            onOpenInNewWindow={(taskId) => window.api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
-            onUpdateBlocks={(blocks) => currentTask && window.api.invoke("task:update", { id: currentTask.id, blocks })}
+            onOpenInNewWindow={(taskId) => api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
+            onUpdateBlocks={(blocks) => currentTask && api.invoke("task:update", { id: currentTask.id, blocks })}
             onCreateChildFromBlock={handleCreateChildFromBlock}
+            onRequestTitle={requestTitle}
             onShowMenu={setMenu}
             />
           </div>
         </div>
       </div>
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+      <PromptModal
+        open={Boolean(promptState)}
+        title={promptState?.title ?? ""}
+        placeholder={promptState?.placeholder}
+        defaultValue={promptState?.defaultValue}
+        onSubmit={(value) => {
+          const resolve = promptState?.resolve;
+          setPromptState(null);
+          resolve?.(value || null);
+        }}
+        onCancel={() => {
+          const resolve = promptState?.resolve;
+          setPromptState(null);
+          resolve?.(null);
+        }}
+      />
       <ReminderModal reminders={reminders} onClose={() => setReminders([])} onOpenTask={(taskId) => handleNavigate(taskId, true)} />
     </div>
   );

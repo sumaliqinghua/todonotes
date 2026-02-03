@@ -164,6 +164,14 @@
     @apply rounded-3xl border border-app-border/70 bg-app-panel/85 shadow-soft backdrop-blur;
   }
 
+  .prompt-overlay {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm;
+  }
+
+  .prompt-card {
+    @apply flex w-[320px] flex-col gap-3 rounded-2xl border border-app-border/70 bg-app-panel/90 p-4 shadow-soft;
+  }
+
   .panel-header {
     @apply flex items-center justify-between gap-3;
   }
