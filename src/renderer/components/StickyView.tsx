@@ -44,11 +44,12 @@ export default function StickyView({
 }: Props) {
   const saveTimer = useRef<number | null>(null);
   const editorRef = useRef<Editor | null>(null);
+  const prevTaskIdRef = useRef<string | null>(null);
   const imageHandlers = createImageHandlers(editorRef);
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimer = useRef<number | null>(null);
   const editor = useEditor({
-    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItem, Image, TaskLinkNode],
+    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItem.configure({ nested: true }), Image, TaskLinkNode],
     content: task?.blocks ?? { type: "doc", content: [{ type: "paragraph" }] },
     editable: true,
     editorProps: {
@@ -84,9 +85,11 @@ export default function StickyView({
     }
     const next = task.blocks ?? { type: "doc", content: [{ type: "paragraph" }] };
     const current = editor.getJSON();
-    if (JSON.stringify(current) !== JSON.stringify(next) && !editor.isFocused) {
+    const taskIdChanged = prevTaskIdRef.current !== task.id;
+    if (taskIdChanged || (JSON.stringify(current) !== JSON.stringify(next) && !editor.isFocused)) {
       editor.commands.setContent(next, false);
     }
+    prevTaskIdRef.current = task.id;
   }, [editor, task?.id, task?.blocks]);
 
   useEffect(() => {
@@ -117,6 +120,23 @@ export default function StickyView({
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "t") {
         event.preventDefault();
         convertSelectionToChild();
+      }
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        toggleCheckbox();
+      }
+      // Tab key for task list indentation
+      if (event.key === "Tab" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        const { $from } = editor.state.selection;
+        const isInTaskItem = $from.parent.type.name === "taskItem" || $from.node(-1)?.type.name === "taskItem";
+        if (isInTaskItem) {
+          event.preventDefault();
+          if (event.shiftKey) {
+            editor.chain().focus().liftListItem("taskItem").run();
+          } else {
+            editor.chain().focus().sinkListItem("taskItem").run();
+          }
+        }
       }
     };
     document.addEventListener("keydown", handleKeydown);
@@ -152,6 +172,24 @@ export default function StickyView({
         { type: "text", text: " " }
       ])
       .run();
+  };
+
+  const toggleCheckbox = () => {
+    if (!editor) {
+      return;
+    }
+    const { state } = editor;
+    const { $from } = state.selection;
+    const currentNode = $from.parent;
+
+    // Check if we're in a task item
+    if (currentNode.type.name === "taskItem") {
+      // Toggle the checkbox state
+      editor.chain().focus().toggleTaskList().run();
+    } else {
+      // Convert current line to a task item
+      editor.chain().focus().toggleTaskList().run();
+    }
   };
 
   const appendChildTaskToEnd = async () => {

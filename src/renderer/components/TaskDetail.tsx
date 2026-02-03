@@ -40,12 +40,13 @@ export default function TaskDetail({
   const [title, setTitle] = useState(task?.title ?? "");
   const blocksTimer = useRef<number | null>(null);
   const editorRef = useRef<Editor | null>(null);
+  const prevTaskIdRef = useRef<string | null>(null);
   const imageHandlers = createImageHandlers(editorRef);
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimer = useRef<number | null>(null);
 
   const editor = useEditor({
-    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItem, Image, TaskLinkNode],
+    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItem.configure({ nested: true }), Image, TaskLinkNode],
     content: task?.blocks ?? DEFAULT_BLOCKS,
     editorProps: {
       handlePaste: imageHandlers.handlePaste,
@@ -81,9 +82,11 @@ export default function TaskDetail({
     }
     const next = task.blocks ?? DEFAULT_BLOCKS;
     const current = editor.getJSON();
-    if (JSON.stringify(current) !== JSON.stringify(next) && !editor.isFocused) {
+    const taskIdChanged = prevTaskIdRef.current !== task.id;
+    if (taskIdChanged || (JSON.stringify(current) !== JSON.stringify(next) && !editor.isFocused)) {
       editor.commands.setContent(next, false);
     }
+    prevTaskIdRef.current = task.id;
   }, [editor, task?.id, task?.blocks]);
 
   useEffect(() => {
@@ -98,6 +101,23 @@ export default function TaskDetail({
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "t") {
         event.preventDefault();
         convertSelectionToChild();
+      }
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        toggleCheckbox();
+      }
+      // Tab key for task list indentation
+      if (event.key === "Tab" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        const { $from } = editor.state.selection;
+        const isInTaskItem = $from.parent.type.name === "taskItem" || $from.node(-1)?.type.name === "taskItem";
+        if (isInTaskItem) {
+          event.preventDefault();
+          if (event.shiftKey) {
+            editor.chain().focus().liftListItem("taskItem").run();
+          } else {
+            editor.chain().focus().sinkListItem("taskItem").run();
+          }
+        }
       }
     };
     document.addEventListener("keydown", handleKeydown);
@@ -144,6 +164,24 @@ export default function TaskDetail({
         { type: "text", text: " " }
       ])
       .run();
+  };
+
+  const toggleCheckbox = () => {
+    if (!editor) {
+      return;
+    }
+    const { state } = editor;
+    const { $from } = state.selection;
+    const currentNode = $from.parent;
+
+    // Check if we're in a task item
+    if (currentNode.type.name === "taskItem") {
+      // Toggle the checkbox state
+      editor.chain().focus().toggleTaskList().run();
+    } else {
+      // Convert current line to a task item
+      editor.chain().focus().toggleTaskList().run();
+    }
   };
 
   const appendChildTaskToEnd = async () => {
@@ -251,7 +289,7 @@ export default function TaskDetail({
     <div className="panel-card panel-enter flex h-full flex-col gap-4 p-5" onContextMenu={handleContextMenu}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="text-lg font-semibold text-app-text font-display">{title}</div>
-        <div className="text-[11px] text-app-muted">Ctrl/Cmd + Shift + T 转为子任务</div>
+        <div className="text-[11px] text-app-muted">Ctrl/Cmd + Shift + T 转为子任务 | Ctrl/Cmd + Shift + S 切换复选框</div>
       </div>
       <div>
         <Breadcrumb ancestors={ancestors} current={task} onNavigate={onNavigate} variant="dark" />

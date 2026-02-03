@@ -328,6 +328,72 @@
   display: none;
 }
 
+/* Task list (checkbox) styles */
+.ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+  margin: 0 0 0.6em;
+}
+
+.ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+  margin: 0.25em 0;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  margin-top: 0.15em;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  opacity: 0.6;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
+  opacity: 1;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked::after {
+  content: "✓";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.ProseMirror ul[data-type="taskList"] li > div {
+  flex: 1;
+}
+
+.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+/* Sticky surface task list styles */
+.sticky-surface .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+  border-color: #2b2b2b;
+}
+
+.sticky-surface .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked::after {
+  color: #2b2b2b;
+}
+
 body.skin-panel-body,
 html.skin-panel-root {
   background: transparent;
