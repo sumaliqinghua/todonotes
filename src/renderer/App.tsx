@@ -127,6 +127,8 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     defaultValue?: string;
     resolve: (value: string | null) => void;
   } | null>(null);
+  const [history, setHistory] = useState<{ stack: string[]; index: number }>({ stack: [], index: -1 });
+  const historyRef = useRef(history);
   const searchTimer = useRef<number | null>(null);
   const currentTaskIdRef = useRef<string | null>(null);
   const navPathRef = useRef<string[]>([]);
@@ -138,6 +140,9 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
   useEffect(() => {
     navPathRef.current = navPath;
   }, [navPath]);
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
 
   const requestTitle = (options: { title: string; placeholder?: string; defaultValue?: string }) => {
     return new Promise<string | null>((resolve) => {
@@ -202,22 +207,72 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     });
   };
 
-  const handleNavigate = async (taskId: string, reset: boolean) => {
+  const pushHistory = (taskId: string) => {
+    if (!taskId) {
+      return;
+    }
+    const prev = historyRef.current;
+    if (prev.stack[prev.index] === taskId) {
+      return;
+    }
+    const trimmed = prev.stack.slice(0, prev.index + 1);
+    const next = { stack: [...trimmed, taskId], index: trimmed.length };
+    historyRef.current = next;
+    setHistory(next);
+  };
+
+  const navigateToTask = async (taskId: string, reset: boolean, recordHistory = true) => {
     if (reset) {
       const chain = await api.invoke("task:getAncestors", { taskId });
       const nextPath = [...chain.map((task) => task.id), taskId];
       setNavPath(nextPath);
       syncWindowState(nextPath);
       await loadTask(taskId);
+      if (recordHistory) {
+        pushHistory(taskId);
+      }
       return;
     }
-    const nextPath = [...navPath, taskId];
+    const nextPath = [...navPathRef.current, taskId];
     setNavPath(nextPath);
     syncWindowState(nextPath);
     await loadTask(taskId);
+    if (recordHistory) {
+      pushHistory(taskId);
+    }
+  };
+
+  const handleNavigate = async (taskId: string, reset: boolean) => {
+    await navigateToTask(taskId, reset, true);
+  };
+
+  const handleHistoryBack = async () => {
+    const prev = historyRef.current;
+    if (prev.index <= 0) {
+      return;
+    }
+    const next = { ...prev, index: prev.index - 1 };
+    historyRef.current = next;
+    setHistory(next);
+    await navigateToTask(next.stack[next.index], true, false);
+  };
+
+  const handleHistoryForward = async () => {
+    const prev = historyRef.current;
+    if (prev.index >= prev.stack.length - 1) {
+      return;
+    }
+    const next = { ...prev, index: prev.index + 1 };
+    historyRef.current = next;
+    setHistory(next);
+    await navigateToTask(next.stack[next.index], true, false);
   };
 
   const handleBackFromRef = async () => {
+    if (historyRef.current.index > 0) {
+      await handleHistoryBack();
+      return;
+    }
     const path = navPathRef.current;
     if (path.length <= 1) {
       return;
@@ -347,11 +402,13 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           stickyOpacity: state.stickyOpacity ?? 1
         });
         await loadTask(state.navPathTaskIds[state.navPathTaskIds.length - 1]);
+        pushHistory(state.navPathTaskIds[state.navPathTaskIds.length - 1]);
       } else {
         const initialPath = [rootTaskId];
         setNavPath(initialPath);
         syncWindowState(initialPath);
         await loadTask(rootTaskId);
+        pushHistory(rootTaskId);
       }
       if (windowType === "library") {
         await refreshLibrary();
@@ -419,7 +476,31 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     }
   }, [libraryTab]);
 
+  useEffect(() => {
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        if (historyRef.current.index > 0) {
+          event.preventDefault();
+          void handleHistoryBack();
+        }
+      }
+      if (event.key === "ArrowRight") {
+        if (historyRef.current.index < historyRef.current.stack.length - 1) {
+          event.preventDefault();
+          void handleHistoryForward();
+        }
+      }
+    };
+    document.addEventListener("keydown", handleKeydown);
+    return () => document.removeEventListener("keydown", handleKeydown);
+  }, []);
+
   const titleText = useMemo(() => currentTask?.title ?? "未选择任务", [currentTask?.title]);
+  const canHistoryBack = history.index > 0;
+  const canHistoryForward = history.index >= 0 && history.index < history.stack.length - 1;
 
   if (windowType === "sticky") {
     return (
@@ -429,6 +510,10 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           task={currentTask}
           ancestors={ancestors}
           onNavigate={handleNavigate}
+          onHistoryBack={handleHistoryBack}
+          onHistoryForward={handleHistoryForward}
+          canHistoryBack={canHistoryBack}
+          canHistoryForward={canHistoryForward}
           onOpenInNewWindow={(taskId) => api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
           onCreateChildFromBlock={handleCreateChildFromBlock}
           onRequestTitle={requestTitle}
@@ -507,6 +592,10 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             task={currentTask}
             ancestors={ancestors}
             onNavigate={handleNavigate}
+            onHistoryBack={handleHistoryBack}
+            onHistoryForward={handleHistoryForward}
+            canHistoryBack={canHistoryBack}
+            canHistoryForward={canHistoryForward}
             onOpenInNewWindow={(taskId) => api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
             onUpdateBlocks={(blocks) => currentTask && api.invoke("task:update", { id: currentTask.id, blocks })}
             onCreateChildFromBlock={handleCreateChildFromBlock}

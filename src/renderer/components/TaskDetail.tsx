@@ -6,6 +6,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
 import type { Task } from "../../shared/types";
 import Breadcrumb from "./Breadcrumb";
+import HistoryNav from "./HistoryNav";
 import { TaskLinkNode } from "./TaskLinkNode";
 import type { ContextMenuState } from "./ContextMenu";
 import { createImageHandlers } from "../utils/editorImages";
@@ -27,6 +28,10 @@ interface Props {
   onCreateChildFromBlock: (title: string) => Promise<{ taskId: string; title: string }>;
   onRequestTitle: (options: { title: string; placeholder?: string; defaultValue?: string }) => Promise<string | null>;
   onShowMenu: (menu: ContextMenuState | null) => void;
+  onHistoryBack: () => void;
+  onHistoryForward: () => void;
+  canHistoryBack: boolean;
+  canHistoryForward: boolean;
 }
 
 export default function TaskDetail({
@@ -37,7 +42,11 @@ export default function TaskDetail({
   onUpdateBlocks,
   onCreateChildFromBlock,
   onRequestTitle,
-  onShowMenu
+  onShowMenu,
+  onHistoryBack,
+  onHistoryForward,
+  canHistoryBack,
+  canHistoryForward
 }: Props) {
   const [title, setTitle] = useState(task?.title ?? "");
   const blocksTimer = useRef<number | null>(null);
@@ -320,8 +329,17 @@ export default function TaskDetail({
         <div className="select-none text-lg font-semibold text-app-text font-display">{title}</div>
         <div className="text-[11px] text-app-muted">Ctrl/Cmd + Shift + T 转为子任务 | Ctrl/Cmd + Shift + S 切换复选框</div>
       </div>
-      <div>
-        <Breadcrumb ancestors={ancestors} current={task} onNavigate={onNavigate} variant="dark" />
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <Breadcrumb ancestors={ancestors} current={task} onNavigate={onNavigate} variant="dark" />
+        </div>
+        <HistoryNav
+          variant="dark"
+          canBack={canHistoryBack}
+          canForward={canHistoryForward}
+          onBack={onHistoryBack}
+          onForward={onHistoryForward}
+        />
       </div>
       <div
         className={`editor-surface scrollbar-hidden cursor-text ${isScrolling ? "scrollbar-visible" : ""}`}

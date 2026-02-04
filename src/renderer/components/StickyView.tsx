@@ -7,6 +7,7 @@ import Image from "@tiptap/extension-image";
 import type { Task } from "../../shared/types";
 import { TaskLinkNode } from "./TaskLinkNode";
 import Breadcrumb from "./Breadcrumb";
+import HistoryNav from "./HistoryNav";
 import { createImageHandlers } from "../utils/editorImages";
 import { handleCopy } from "../utils/editorMarkdown";
 import { CollapsibleListItem } from "../utils/listCollapse";
@@ -27,6 +28,10 @@ interface Props {
   onCreateChildFromBlock: (title: string) => Promise<{ taskId: string; title: string }>;
   onRequestTitle: (options: { title: string; placeholder?: string; defaultValue?: string }) => Promise<string | null>;
   onShowMenu: (menu: { x: number; y: number; items: { label: string; action: () => void }[] } | null) => void;
+  onHistoryBack: () => void;
+  onHistoryForward: () => void;
+  canHistoryBack: boolean;
+  canHistoryForward: boolean;
   isPinned: boolean;
   onTogglePin: () => void;
   onClose: () => void;
@@ -45,6 +50,10 @@ export default function StickyView({
   onCreateChildFromBlock,
   onRequestTitle,
   onShowMenu,
+  onHistoryBack,
+  onHistoryForward,
+  canHistoryBack,
+  canHistoryForward,
   isPinned,
   onTogglePin,
   onClose,
@@ -468,6 +477,13 @@ export default function StickyView({
   const footerText = `今天, ${today.getMonth() + 1}月${today.getDate()}日`;
   const stickyBackground = hexToRgba(stickyColor, stickyOpacity);
 
+  useEffect(() => {
+    document.documentElement.style.setProperty("--sticky-panel-color", stickyBackground);
+    return () => {
+      document.documentElement.style.removeProperty("--sticky-panel-color");
+    };
+  }, [stickyBackground]);
+
   if (!task) {
     return <div className="flex h-screen items-center justify-center bg-[#f6e8a6] text-[#2b2b2b]">加载中...</div>;
   }
@@ -530,8 +546,17 @@ export default function StickyView({
             </button>
           </div>
         </div>
-        <div>
-          <Breadcrumb ancestors={ancestors} current={task} onNavigate={onNavigate} />
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <Breadcrumb ancestors={ancestors} current={task} onNavigate={onNavigate} />
+          </div>
+          <HistoryNav
+            variant="light"
+            canBack={canHistoryBack}
+            canForward={canHistoryForward}
+            onBack={onHistoryBack}
+            onForward={onHistoryForward}
+          />
         </div>
       </div>
       <div

@@ -328,7 +328,7 @@
   }
 
   .breadcrumb-light .breadcrumb-current {
-    @apply text-[11px] font-semibold text-black/80;
+    @apply bg-transparent text-[11px] font-semibold text-black/80 hover:bg-transparent;
   }
 
   .breadcrumb-light .breadcrumb-root {
@@ -351,6 +351,55 @@
 
   .breadcrumb .breadcrumb-item {
     cursor: pointer;
+  }
+
+  .breadcrumb-caret {
+    @apply ml-1 text-[10px] text-black/40;
+  }
+
+  .breadcrumb-dark .breadcrumb-caret {
+    @apply text-app-muted;
+  }
+
+  .breadcrumb-popover {
+    @apply z-50 min-w-[180px] max-w-[240px] rounded-xl border p-1 text-[11px] shadow-soft backdrop-blur;
+    max-height: 240px;
+    overflow: auto;
+  }
+
+  .breadcrumb-popover-floating {
+    position: fixed;
+  }
+
+  .breadcrumb-popover-light {
+    @apply text-black/80;
+    background: var(--sticky-panel-color, #f6e8a6);
+    background: color-mix(in srgb, var(--sticky-panel-color, #f6e8a6) 88%, #ffffff 12%);
+    border-color: rgba(60, 44, 10, 0.18);
+  }
+
+  .breadcrumb-popover-dark {
+    @apply border-app-border/70 bg-app-panel/90 text-app-text;
+  }
+
+  .breadcrumb-popover-item {
+    @apply w-full rounded-lg px-2 py-1 text-left transition;
+  }
+
+  .breadcrumb-popover-light .breadcrumb-popover-item {
+    @apply hover:bg-[rgba(60,44,10,0.08)];
+  }
+
+  .breadcrumb-popover-dark .breadcrumb-popover-item {
+    @apply hover:bg-app-panelAlt/80;
+  }
+
+  .breadcrumb-popover-empty {
+    @apply px-2 py-1 text-black/50;
+  }
+
+  .breadcrumb-popover-dark .breadcrumb-popover-empty {
+    @apply text-app-muted;
   }
 }
 
