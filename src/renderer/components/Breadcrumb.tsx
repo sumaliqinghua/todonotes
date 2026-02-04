@@ -12,10 +12,11 @@ export default function Breadcrumb({ ancestors, current, onNavigate, variant = "
   const className = variant === "dark" ? "breadcrumb breadcrumb-dark" : "breadcrumb breadcrumb-light";
   return (
     <div className={className}>
-      {ancestors.map((task) => (
+      {ancestors.map((task, index) => (
         <React.Fragment key={task.id}>
           <button
             type="button"
+            className={`breadcrumb-item${index === 0 ? " breadcrumb-root" : ""}`}
             onClick={() => onNavigate(task.id, true)}
           >
             {task.title}
@@ -25,7 +26,7 @@ export default function Breadcrumb({ ancestors, current, onNavigate, variant = "
       ))}
       {current ? (
         <>
-          <span className="breadcrumb-current">{current.title}</span>
+          <span className="breadcrumb-current breadcrumb-item">{current.title}</span>
           <span className="text-black/40">/</span>
         </>
       ) : null}

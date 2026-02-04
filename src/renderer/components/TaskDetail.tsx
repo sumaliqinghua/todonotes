@@ -9,7 +9,9 @@ import Breadcrumb from "./Breadcrumb";
 import { TaskLinkNode } from "./TaskLinkNode";
 import type { ContextMenuState } from "./ContextMenu";
 import { createImageHandlers } from "../utils/editorImages";
+import { handleCopy } from "../utils/editorMarkdown";
 import { CollapsibleListItem } from "../utils/listCollapse";
+import { updateTaskItemIndent } from "../utils/taskIndent";
 
 const DEFAULT_BLOCKS = {
   type: "doc",
@@ -45,12 +47,39 @@ export default function TaskDetail({
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimer = useRef<number | null>(null);
 
+  const TaskItemWithIndent = TaskItem.extend({
+    addAttributes() {
+      return {
+        ...this.parent?.(),
+        indent: {
+          default: 0,
+          parseHTML: (element) => {
+            const raw = element.getAttribute("data-indent");
+            const parsed = raw ? Number(raw) : 0;
+            return Number.isNaN(parsed) ? 0 : parsed;
+          },
+          renderHTML: (attributes) =>
+            attributes.indent > 0
+              ? {
+                  "data-indent": String(attributes.indent),
+                  style: `--task-indent-level: ${attributes.indent};`
+                }
+              : {}
+        }
+      };
+    }
+  }).configure({ nested: true });
+
   const editor = useEditor({
-    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItem.configure({ nested: true }), Image, TaskLinkNode],
+    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode],
     content: task?.blocks ?? DEFAULT_BLOCKS,
     editorProps: {
       handlePaste: imageHandlers.handlePaste,
       handleDrop: imageHandlers.handleDrop,
+      clipboardTextSerializer: () => "",
+      handleDOMEvents: {
+        copy: handleCopy
+      },
       handleClick: (_view, _pos, event) => {
         const target = event.target as HTMLElement | null;
         const linkEl = target?.closest?.(".task-link-block") as HTMLElement | null;
@@ -106,16 +135,16 @@ export default function TaskDetail({
         event.preventDefault();
         toggleCheckbox();
       }
-      // Tab key for task list indentation
+      // Tab key for task list visual indentation
       if (event.key === "Tab" && !event.metaKey && !event.ctrlKey && !event.altKey) {
         const { $from } = editor.state.selection;
         const isInTaskItem = $from.parent.type.name === "taskItem" || $from.node(-1)?.type.name === "taskItem";
         if (isInTaskItem) {
           event.preventDefault();
           if (event.shiftKey) {
-            editor.chain().focus().liftListItem("taskItem").run();
+            updateTaskItemIndent(editor, -1);
           } else {
-            editor.chain().focus().sinkListItem("taskItem").run();
+            updateTaskItemIndent(editor, 1);
           }
         }
       }
@@ -288,7 +317,7 @@ export default function TaskDetail({
   return (
     <div className="panel-card panel-enter flex h-full flex-col gap-4 p-5" onContextMenu={handleContextMenu}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="text-lg font-semibold text-app-text font-display">{title}</div>
+        <div className="select-none text-lg font-semibold text-app-text font-display">{title}</div>
         <div className="text-[11px] text-app-muted">Ctrl/Cmd + Shift + T 转为子任务 | Ctrl/Cmd + Shift + S 切换复选框</div>
       </div>
       <div>

@@ -8,7 +8,9 @@ import type { Task } from "../../shared/types";
 import { TaskLinkNode } from "./TaskLinkNode";
 import Breadcrumb from "./Breadcrumb";
 import { createImageHandlers } from "../utils/editorImages";
+import { handleCopy } from "../utils/editorMarkdown";
 import { CollapsibleListItem } from "../utils/listCollapse";
+import { updateTaskItemIndent } from "../utils/taskIndent";
 import { hexToRgba } from "../utils/color";
 
 interface Props {
@@ -48,13 +50,39 @@ export default function StickyView({
   const imageHandlers = createImageHandlers(editorRef);
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimer = useRef<number | null>(null);
+  const TaskItemWithIndent = TaskItem.extend({
+    addAttributes() {
+      return {
+        ...this.parent?.(),
+        indent: {
+          default: 0,
+          parseHTML: (element) => {
+            const raw = element.getAttribute("data-indent");
+            const parsed = raw ? Number(raw) : 0;
+            return Number.isNaN(parsed) ? 0 : parsed;
+          },
+          renderHTML: (attributes) =>
+            attributes.indent > 0
+              ? {
+                  "data-indent": String(attributes.indent),
+                  style: `--task-indent-level: ${attributes.indent};`
+                }
+              : {}
+        }
+      };
+    }
+  }).configure({ nested: true });
   const editor = useEditor({
-    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItem.configure({ nested: true }), Image, TaskLinkNode],
+    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode],
     content: task?.blocks ?? { type: "doc", content: [{ type: "paragraph" }] },
     editable: true,
     editorProps: {
       handlePaste: imageHandlers.handlePaste,
       handleDrop: imageHandlers.handleDrop,
+      clipboardTextSerializer: () => "",
+      handleDOMEvents: {
+        copy: handleCopy
+      },
       handleClick: (_view, _pos, event) => {
         const target = event.target as HTMLElement | null;
         const linkEl = target?.closest?.(".task-link-block") as HTMLElement | null;
@@ -125,16 +153,16 @@ export default function StickyView({
         event.preventDefault();
         toggleCheckbox();
       }
-      // Tab key for task list indentation
+      // Tab key for task list visual indentation
       if (event.key === "Tab" && !event.metaKey && !event.ctrlKey && !event.altKey) {
         const { $from } = editor.state.selection;
         const isInTaskItem = $from.parent.type.name === "taskItem" || $from.node(-1)?.type.name === "taskItem";
         if (isInTaskItem) {
           event.preventDefault();
           if (event.shiftKey) {
-            editor.chain().focus().liftListItem("taskItem").run();
+            updateTaskItemIndent(editor, -1);
           } else {
-            editor.chain().focus().sinkListItem("taskItem").run();
+            updateTaskItemIndent(editor, 1);
           }
         }
       }
