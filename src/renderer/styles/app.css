@@ -242,11 +242,70 @@
   }
 
   .sticky-controls button {
-    @apply rounded-md px-2 py-1 text-[11px] text-black/70 transition;
+    @apply transition;
+  }
+
+  .pomodoro-button {
+    @apply relative flex h-8 w-8 items-center justify-center rounded-full border border-transparent text-[10px] font-semibold text-black/70 transition;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .pomodoro-button[data-phase="focus"] {
+    color: rgba(42, 110, 196, 0.95);
+  }
+
+  .pomodoro-button[data-phase="break"] {
+    color: rgba(45, 132, 92, 0.95);
+  }
+
+  .pomodoro-button:hover {
+    border-color: rgba(0, 0, 0, 0.2);
+  }
+
+  .pomodoro-button:active {
+    border-color: rgba(0, 0, 0, 0.3);
+  }
+
+  .pomodoro-ring {
+    @apply absolute left-0 top-0 h-full w-full -rotate-90;
+  }
+
+  .pomodoro-ring-track {
+    fill: none;
+    stroke: rgba(0, 0, 0, 0.18);
+    stroke-width: 2;
+  }
+
+  .pomodoro-ring-progress {
+    fill: none;
+    stroke: var(--pomodoro-stroke, #4b8fe6);
+    stroke-width: 2.8;
+    stroke-linecap: round;
+    stroke-dasharray: 69.1;
+    stroke-dashoffset: calc(69.1 * var(--pomodoro-progress, 0));
+    transition: stroke-dashoffset 0.3s linear;
+  }
+
+  .pomodoro-label {
+    @apply relative z-10 flex items-center gap-0.5;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pomodoro-icon {
+    @apply text-[9px] leading-none;
+  }
+
+  .sticky-tip {
+    @apply absolute left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-[11px] text-white;
+    top: 6px;
+    z-index: 30;
+    pointer-events: none;
   }
 
   .sticky-chip {
-    @apply rounded-md px-2 py-1 text-[11px] font-semibold;
+    @apply rounded-md px-2 py-1 text-[11px] font-semibold text-black/70;
   }
 
   .sticky-chip[data-active="true"] {

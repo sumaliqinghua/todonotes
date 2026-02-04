@@ -16,7 +16,7 @@ export default function Breadcrumb({ ancestors, current, onNavigate, variant = "
         <React.Fragment key={task.id}>
           <button
             type="button"
-            className={`breadcrumb-item${index === 0 ? " breadcrumb-root" : ""}`}
+            className={`breadcrumb-item no-drag${index === 0 ? " breadcrumb-root" : ""}`}
             onClick={() => onNavigate(task.id, true)}
           >
             {task.title}

@@ -13,6 +13,11 @@ import { CollapsibleListItem } from "../utils/listCollapse";
 import { updateTaskItemIndent } from "../utils/taskIndent";
 import { hexToRgba } from "../utils/color";
 
+const FOCUS_SECONDS = 25 * 60;
+const BREAK_SECONDS = 5 * 60;
+const FOCUS_MINUTES = 25;
+const BREAK_MINUTES = 5;
+
 interface Props {
   windowId: string;
   task: Task | null;
@@ -28,6 +33,8 @@ interface Props {
   stickyColor: string;
   stickyOpacity: number;
 }
+
+type PomodoroPhase = "idle" | "focus" | "break";
 
 export default function StickyView({
   windowId,
@@ -50,6 +57,14 @@ export default function StickyView({
   const imageHandlers = createImageHandlers(editorRef);
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimer = useRef<number | null>(null);
+  const [pomodoroPhase, setPomodoroPhase] = useState<PomodoroPhase>("idle");
+  const [pomodoroRemaining, setPomodoroRemaining] = useState(FOCUS_SECONDS);
+  const [pomodoroPaused, setPomodoroPaused] = useState(false);
+  const pomodoroEndAtRef = useRef<number | null>(null);
+  const pomodoroTimerRef = useRef<number | null>(null);
+  const [pomodoroTip, setPomodoroTip] = useState<string | null>(null);
+  const pomodoroTipTimerRef = useRef<number | null>(null);
+  const pomodoroClickTimerRef = useRef<number | null>(null);
   const TaskItemWithIndent = TaskItem.extend({
     addAttributes() {
       return {
@@ -132,6 +147,15 @@ export default function StickyView({
       if (scrollTimer.current) {
         window.clearTimeout(scrollTimer.current);
       }
+      if (pomodoroTimerRef.current) {
+        window.clearInterval(pomodoroTimerRef.current);
+      }
+      if (pomodoroTipTimerRef.current) {
+        window.clearTimeout(pomodoroTipTimerRef.current);
+      }
+      if (pomodoroClickTimerRef.current) {
+        window.clearTimeout(pomodoroClickTimerRef.current);
+      }
       window.api.invoke("window:toggleSkinPanel", { windowId, open: false });
     };
   }, [windowId]);
@@ -139,6 +163,129 @@ export default function StickyView({
   const handleToggleSkinPanel = () => {
     window.api.invoke("window:toggleSkinPanel", { windowId });
   };
+
+  const showPomodoroTip = (message: string) => {
+    setPomodoroTip(message);
+    if (pomodoroTipTimerRef.current) {
+      window.clearTimeout(pomodoroTipTimerRef.current);
+    }
+    pomodoroTipTimerRef.current = window.setTimeout(() => setPomodoroTip(null), 2600);
+  };
+
+  const clearPomodoroTimer = () => {
+    if (pomodoroTimerRef.current) {
+      window.clearInterval(pomodoroTimerRef.current);
+      pomodoroTimerRef.current = null;
+    }
+  };
+
+  const stopPomodoro = (showTip = true) => {
+    const wasActive = pomodoroPhase !== "idle" || pomodoroPaused;
+    clearPomodoroTimer();
+    pomodoroEndAtRef.current = null;
+    setPomodoroPhase("idle");
+    setPomodoroRemaining(FOCUS_SECONDS);
+    setPomodoroPaused(false);
+    if (showTip && wasActive) {
+      showPomodoroTip("已停止，回到 25 分钟");
+    }
+  };
+
+  const startPomodoroTimer = (phase: Exclude<PomodoroPhase, "idle">) => {
+    clearPomodoroTimer();
+    pomodoroTimerRef.current = window.setInterval(() => {
+      if (!pomodoroEndAtRef.current) {
+        return;
+      }
+      const remaining = Math.max(0, Math.ceil((pomodoroEndAtRef.current - Date.now()) / 1000));
+      setPomodoroRemaining(remaining);
+      if (remaining <= 0) {
+        if (phase === "focus") {
+          showPomodoroTip(`进入休息 ${BREAK_MINUTES} 分钟`);
+          startPomodoroPhase("break");
+        } else {
+          stopPomodoro(false);
+          showPomodoroTip("番茄完成，休息结束");
+        }
+      }
+    }, 300);
+  };
+
+  const startPomodoroPhase = (phase: Exclude<PomodoroPhase, "idle">) => {
+    const duration = phase === "focus" ? FOCUS_SECONDS : BREAK_SECONDS;
+    setPomodoroPhase(phase);
+    setPomodoroRemaining(duration);
+    setPomodoroPaused(false);
+    pomodoroEndAtRef.current = Date.now() + duration * 1000;
+    startPomodoroTimer(phase);
+  };
+
+  const pausePomodoro = () => {
+    if (pomodoroPhase === "idle" || pomodoroPaused) {
+      return;
+    }
+    clearPomodoroTimer();
+    pomodoroEndAtRef.current = null;
+    setPomodoroPaused(true);
+    showPomodoroTip("已暂停");
+  };
+
+  const resumePomodoro = () => {
+    if (pomodoroPhase === "idle" || !pomodoroPaused) {
+      return;
+    }
+    setPomodoroPaused(false);
+    pomodoroEndAtRef.current = Date.now() + pomodoroRemaining * 1000;
+    startPomodoroTimer(pomodoroPhase === "break" ? "break" : "focus");
+    showPomodoroTip("继续进行");
+  };
+
+  const handlePomodoroSingleClick = () => {
+    if (pomodoroPhase === "idle") {
+      startPomodoroPhase("focus");
+      showPomodoroTip(`专注开始 ${FOCUS_MINUTES} 分钟`);
+      return;
+    }
+    if (pomodoroPaused) {
+      resumePomodoro();
+      return;
+    }
+    pausePomodoro();
+  };
+
+  const handlePomodoroClick = () => {
+    if (pomodoroClickTimerRef.current) {
+      window.clearTimeout(pomodoroClickTimerRef.current);
+    }
+    pomodoroClickTimerRef.current = window.setTimeout(() => {
+      pomodoroClickTimerRef.current = null;
+      handlePomodoroSingleClick();
+    }, 260);
+  };
+
+  const handlePomodoroDoubleClick = () => {
+    if (pomodoroClickTimerRef.current) {
+      window.clearTimeout(pomodoroClickTimerRef.current);
+      pomodoroClickTimerRef.current = null;
+    }
+    stopPomodoro(true);
+  };
+
+  const pomodoroDuration = pomodoroPhase === "break" ? BREAK_SECONDS : FOCUS_SECONDS;
+  const pomodoroProgress = pomodoroPhase === "idle" ? 1 : 1 - pomodoroRemaining / pomodoroDuration;
+  const pomodoroStroke =
+    pomodoroPhase === "break" ? "#43b883" : pomodoroPhase === "focus" ? "#4b8fe6" : "#b0b0b0";
+  const pomodoroMinutes = Math.ceil(pomodoroRemaining / 60);
+  const pomodoroLabel =
+    pomodoroPhase === "focus"
+      ? pomodoroPaused
+        ? `已暂停 ${pomodoroMinutes} 分`
+        : `专注中 ${pomodoroMinutes} 分`
+      : pomodoroPhase === "break"
+        ? pomodoroPaused
+          ? `休息暂停 ${pomodoroMinutes} 分`
+          : `休息中 ${pomodoroMinutes} 分`
+        : "开始番茄钟";
 
   useEffect(() => {
     if (!editor) {
@@ -331,10 +478,44 @@ export default function StickyView({
       style={{ "--sticky-base": stickyBackground } as React.CSSProperties}
       onContextMenu={handleContextMenu}
     >
+      {pomodoroTip ? <div className="no-drag sticky-tip">{pomodoroTip}</div> : null}
       <div className="drag-region sticky-titlebar">
         <div className="sticky-header">
           <div className="select-none text-sm font-semibold">{task.title}</div>
           <div className="no-drag sticky-controls flex items-center gap-2 text-xs">
+            <button
+              type="button"
+              className="pomodoro-button no-drag"
+              data-phase={pomodoroPhase}
+              data-paused={pomodoroPaused}
+              aria-label={pomodoroLabel}
+              title={pomodoroLabel}
+              onClick={handlePomodoroClick}
+              onDoubleClick={handlePomodoroDoubleClick}
+            >
+              <svg className="pomodoro-ring" viewBox="0 0 32 32" aria-hidden>
+                <circle cx="16" cy="16" r="11" className="pomodoro-ring-track" />
+                <circle
+                  cx="16"
+                  cy="16"
+                  r="11"
+                  className="pomodoro-ring-progress"
+                  style={
+                    {
+                      "--pomodoro-stroke": pomodoroStroke,
+                      "--pomodoro-progress": pomodoroProgress
+                    } as React.CSSProperties
+                  }
+                />
+              </svg>
+              <span className="pomodoro-label">
+                {pomodoroPaused ? (
+                  <span className="pomodoro-icon" aria-hidden>⏸</span>
+                ) : (
+                  <span>{pomodoroPhase === "break" ? String(BREAK_MINUTES) : String(pomodoroMinutes || FOCUS_MINUTES)}</span>
+                )}
+              </span>
+            </button>
             <button type="button" className="sticky-chip" data-active="false" aria-label="皮肤" onClick={handleToggleSkinPanel}>
               🎨
             </button>
@@ -349,7 +530,7 @@ export default function StickyView({
             </button>
           </div>
         </div>
-        <div className="no-drag">
+        <div>
           <Breadcrumb ancestors={ancestors} current={task} onNavigate={onNavigate} />
         </div>
       </div>
