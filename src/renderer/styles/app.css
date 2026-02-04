@@ -228,6 +228,15 @@
     border: none;
   }
 
+  .sticky-titlebar {
+    @apply flex flex-col gap-1 rounded-xl px-2 py-2;
+    cursor: grab;
+  }
+
+  .sticky-titlebar:active {
+    cursor: grabbing;
+  }
+
   .sticky-header {
     @apply flex items-center justify-between gap-2 px-1 py-1;
   }

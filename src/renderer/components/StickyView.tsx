@@ -331,25 +331,27 @@ export default function StickyView({
       style={{ "--sticky-base": stickyBackground } as React.CSSProperties}
       onContextMenu={handleContextMenu}
     >
-      <div className="drag-region sticky-header">
-        <div className="select-none text-sm font-semibold">{task.title}</div>
-        <div className="no-drag sticky-controls flex items-center gap-2 text-xs">
-          <button type="button" className="sticky-chip" data-active="false" aria-label="皮肤" onClick={handleToggleSkinPanel}>
-            🎨
-          </button>
-          <button type="button" className="sticky-chip" data-active={isPinned} onClick={onTogglePin}>
-            {isPinned ? "📌" : "📍"}
-          </button>
-          <button type="button" className="sticky-chip" data-active="false" onClick={() => window.api.invoke("window:minimize", { windowId })}>
-            —
-          </button>
-          <button type="button" className="sticky-chip" data-active="false" onClick={onClose}>
-            ×
-          </button>
+      <div className="drag-region sticky-titlebar">
+        <div className="sticky-header">
+          <div className="select-none text-sm font-semibold">{task.title}</div>
+          <div className="no-drag sticky-controls flex items-center gap-2 text-xs">
+            <button type="button" className="sticky-chip" data-active="false" aria-label="皮肤" onClick={handleToggleSkinPanel}>
+              🎨
+            </button>
+            <button type="button" className="sticky-chip" data-active={isPinned} onClick={onTogglePin}>
+              {isPinned ? "📌" : "📍"}
+            </button>
+            <button type="button" className="sticky-chip" data-active="false" onClick={() => window.api.invoke("window:minimize", { windowId })}>
+              —
+            </button>
+            <button type="button" className="sticky-chip" data-active="false" onClick={onClose}>
+              ×
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="no-drag">
-        <Breadcrumb ancestors={ancestors} current={task} onNavigate={onNavigate} />
+        <div className="no-drag">
+          <Breadcrumb ancestors={ancestors} current={task} onNavigate={onNavigate} />
+        </div>
       </div>
       <div
         className={`sticky-editor scrollbar-hidden cursor-text ${isScrolling ? "sticky-scrollbar-visible" : ""}`}
