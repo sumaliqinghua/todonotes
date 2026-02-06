@@ -30,9 +30,15 @@ export interface WindowState {
   opacity: number;
   stickyColor: string;
   stickyOpacity: number;
+  stickyBookmarks: WindowBookmark[];
   alwaysOnTop: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface WindowBookmark {
+  taskId: string;
+  title: string;
 }
 
 export interface Reminder {

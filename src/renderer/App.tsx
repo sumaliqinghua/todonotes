@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { Task } from "../shared/types";
+import type { Task, WindowBookmark } from "../shared/types";
 import ContextMenu, { ContextMenuState } from "./components/ContextMenu";
 import LibraryPanel, { TaskTreeNode } from "./components/LibraryPanel";
 import ReminderModal from "./components/ReminderModal";
@@ -128,6 +128,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     resolve: (value: string | null) => void;
   } | null>(null);
   const [history, setHistory] = useState<{ stack: string[]; index: number }>({ stack: [], index: -1 });
+  const [stickyBookmarks, setStickyBookmarks] = useState<WindowBookmark[]>([]);
   const historyRef = useRef(history);
   const searchTimer = useRef<number | null>(null);
   const currentTaskIdRef = useRef<string | null>(null);
@@ -395,17 +396,24 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       const state = await api.invoke("window:getState", { windowId });
       if (state) {
         setNavPath(state.navPathTaskIds);
+        setStickyBookmarks(Array.isArray(state.stickyBookmarks) ? state.stickyBookmarks : []);
         updateWindowSettings({
           opacity: state.opacity,
           alwaysOnTop: state.alwaysOnTop,
           stickyColor: state.stickyColor ?? "#f6e8a6",
           stickyOpacity: state.stickyOpacity ?? 1
         });
-        await loadTask(state.navPathTaskIds[state.navPathTaskIds.length - 1]);
-        pushHistory(state.navPathTaskIds[state.navPathTaskIds.length - 1]);
+        const lastTaskId = state.navPathTaskIds[state.navPathTaskIds.length - 1];
+        const firstBookmarkTaskId = Array.isArray(state.stickyBookmarks) && state.stickyBookmarks.length > 0 ? state.stickyBookmarks[0].taskId : null;
+        if (!state.rootTaskId && firstBookmarkTaskId) {
+          api.invoke("window:updateState", { windowId, rootTaskId: firstBookmarkTaskId });
+        }
+        await loadTask(lastTaskId);
+        pushHistory(lastTaskId);
       } else {
         const initialPath = [rootTaskId];
         setNavPath(initialPath);
+        setStickyBookmarks([]);
         syncWindowState(initialPath);
         await loadTask(rootTaskId);
         pushHistory(rootTaskId);
@@ -527,6 +535,11 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           onClose={() => api.invoke("window:close", { windowId })}
           stickyColor={stickyColor}
           stickyOpacity={stickyOpacity}
+          bookmarks={stickyBookmarks}
+          onBookmarksChange={(nextBookmarks) => {
+            setStickyBookmarks(nextBookmarks);
+            api.invoke("window:updateState", { windowId, stickyBookmarks: nextBookmarks });
+          }}
         />
         <ContextMenu menu={menu} onClose={() => setMenu(null)} />
       </div>

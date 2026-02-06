@@ -26,6 +26,7 @@ export function migrate(db: Database.Database) {
       root_task_id TEXT NOT NULL,
       nav_path_task_ids TEXT NOT NULL,
       window_type TEXT NOT NULL DEFAULT 'library',
+      sticky_bookmarks TEXT NOT NULL DEFAULT '[]',
       x INTEGER,
       y INTEGER,
       width INTEGER NOT NULL,
@@ -35,6 +36,12 @@ export function migrate(db: Database.Database) {
       sticky_opacity REAL NOT NULL DEFAULT 1,
       always_on_top INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sticky_bookmarks (
+      root_task_id TEXT PRIMARY KEY,
+      bookmarks TEXT NOT NULL DEFAULT '[]',
       updated_at INTEGER NOT NULL
     );
 
@@ -80,5 +87,9 @@ export function migrate(db: Database.Database) {
   const hasStickyOpacity = columns.some((column) => column.name === "sticky_opacity");
   if (!hasStickyOpacity) {
     db.exec("ALTER TABLE window_states ADD COLUMN sticky_opacity REAL NOT NULL DEFAULT 1");
+  }
+  const hasStickyBookmarks = columns.some((column) => column.name === "sticky_bookmarks");
+  if (!hasStickyBookmarks) {
+    db.exec("ALTER TABLE window_states ADD COLUMN sticky_bookmarks TEXT NOT NULL DEFAULT '[]'");
   }
 }

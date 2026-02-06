@@ -1,0 +1,1 @@
+{"root":["./src/preload/index.ts","./src/shared/ipc.ts","./src/shared/types.ts","./src/shared/uuid.d.ts"],"version":"5.9.3"}

@@ -73,7 +73,7 @@
   }
 
   .sticky-editor {
-    @apply flex-1 overflow-auto px-2 py-2;
+    @apply flex-1 overflow-auto px-2 pb-2 pt-0;
     background: transparent;
   }
 
@@ -231,6 +231,7 @@
   .sticky-titlebar {
     @apply flex flex-col gap-1 rounded-xl px-2 py-2;
     cursor: grab;
+    overflow: hidden;
   }
 
   .sticky-titlebar:active {
@@ -316,6 +317,36 @@
 
   .sticky-chip[data-active="false"] {
     @apply text-black/60;
+  }
+
+  .sticky-bookmark-strip {
+    @apply flex items-center gap-1 overflow-x-auto;
+    padding: 0;
+    margin-top: -1px;
+  }
+
+  .sticky-bookmark-item {
+    @apply inline-flex items-center rounded-md border border-black/20 bg-black/5;
+    flex: 0 0 auto;
+  }
+
+  .sticky-bookmark-link {
+    @apply rounded-l-md px-1.5 py-0.5 text-[11px] text-black/75 transition hover:bg-black/10;
+    max-width: 72px;
+    white-space: nowrap;
+  }
+
+  .sticky-bookmark-tip {
+    @apply fixed -translate-x-1/2 -translate-y-full rounded-md bg-black/80 px-2 py-1 text-[11px] text-white;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 80;
+    line-height: 1;
+  }
+
+  .sticky-bookmark-remove {
+    @apply rounded-r-md px-1 py-0.5 text-[11px] text-black/60 transition hover:bg-black/15 hover:text-black;
+    line-height: 1;
   }
 
   .breadcrumb {

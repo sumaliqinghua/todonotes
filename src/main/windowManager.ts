@@ -2,7 +2,14 @@ import { app, BrowserWindow, screen } from "electron";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import type { WindowState } from "../shared/types";
-import { deleteWindowState, listWindowStates, upsertWindowState } from "./db/windowStateRepo";
+import {
+  deleteWindowState,
+  findStickyBookmarksByContainedTaskId,
+  getStickyBookmarksByRootTaskId,
+  listWindowStates,
+  upsertStickyBookmarksByRootTaskId,
+  upsertWindowState
+} from "./db/windowStateRepo";
 
 const SNAP_THRESHOLD = 20;
 const MIN_VISIBLE = 32;
@@ -149,10 +156,18 @@ function createDefaultState(windowId: string, rootTaskId: string, windowType: "l
     opacity: 1,
     stickyColor: DEFAULT_STICKY_COLOR,
     stickyOpacity: DEFAULT_STICKY_OPACITY,
+    stickyBookmarks: [],
     alwaysOnTop: windowType === "sticky",
     createdAt: now,
     updatedAt: now
   };
+}
+
+function ensureRootTaskBookmark(rootTaskId: string, bookmarks: Array<{ taskId: string; title: string }>) {
+  if (bookmarks.some((bookmark) => bookmark.taskId === rootTaskId)) {
+    return bookmarks;
+  }
+  return [{ taskId: rootTaskId, title: "" }, ...bookmarks];
 }
 
 export function createTaskWindow(
@@ -162,7 +177,22 @@ export function createTaskWindow(
 ) {
   const windowId = existingState?.windowId ?? uuidv4();
   const windowType = existingState?.windowType ?? options?.windowType ?? "library";
-  const state = existingState ?? createDefaultState(windowId, rootTaskId, windowType);
+  const baseState = existingState ?? createDefaultState(windowId, rootTaskId, windowType);
+  const persistedBookmarks = windowType === "sticky" ? getStickyBookmarksByRootTaskId(rootTaskId) : [];
+  const fallbackBookmarks =
+    windowType === "sticky" && persistedBookmarks.length === 0 ? findStickyBookmarksByContainedTaskId(rootTaskId) : [];
+  const stickyBookmarks =
+    windowType === "sticky"
+      ? ensureRootTaskBookmark(
+          rootTaskId,
+          persistedBookmarks.length > 0
+            ? persistedBookmarks
+            : fallbackBookmarks.length > 0
+              ? fallbackBookmarks
+              : baseState.stickyBookmarks
+        )
+      : baseState.stickyBookmarks;
+  const state = { ...baseState, stickyBookmarks };
 
   const win = new BrowserWindow({
     width: state.width,
@@ -222,6 +252,10 @@ export function createTaskWindow(
   });
   win.on("resize", updateStateFromWindow);
   win.on("closed", () => {
+    const latest = windowStates.get(windowId);
+    if (latest?.windowType === "sticky") {
+      upsertStickyBookmarksByRootTaskId(latest.rootTaskId, ensureRootTaskBookmark(latest.rootTaskId, latest.stickyBookmarks ?? []));
+    }
     windows.delete(windowId);
     const panel = skinPanels.get(windowId);
     if (panel && !panel.isDestroyed()) {
@@ -356,6 +390,9 @@ export function updateWindowState(partial: Partial<WindowState> & { windowId: st
       const opacity = typeof partial.stickyOpacity === "number" ? partial.stickyOpacity : current.stickyOpacity ?? DEFAULT_STICKY_OPACITY;
       win.setBackgroundColor(resolveStickyBackground(color, opacity));
     }
+  }
+  if (next.windowType === "sticky") {
+    upsertStickyBookmarksByRootTaskId(next.rootTaskId, ensureRootTaskBookmark(next.rootTaskId, next.stickyBookmarks ?? []));
   }
 }
 

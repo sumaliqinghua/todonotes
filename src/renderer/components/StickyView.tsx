@@ -4,7 +4,7 @@ import StarterKit from "@tiptap/starter-kit";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
-import type { Task } from "../../shared/types";
+import type { Task, WindowBookmark } from "../../shared/types";
 import { TaskLinkNode } from "./TaskLinkNode";
 import Breadcrumb from "./Breadcrumb";
 import HistoryNav from "./HistoryNav";
@@ -37,6 +37,8 @@ interface Props {
   onClose: () => void;
   stickyColor: string;
   stickyOpacity: number;
+  bookmarks: WindowBookmark[];
+  onBookmarksChange: (bookmarks: WindowBookmark[]) => void;
 }
 
 type PomodoroPhase = "idle" | "focus" | "break";
@@ -58,7 +60,9 @@ export default function StickyView({
   onTogglePin,
   onClose,
   stickyColor,
-  stickyOpacity
+  stickyOpacity,
+  bookmarks,
+  onBookmarksChange
 }: Props) {
   const saveTimer = useRef<number | null>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -72,6 +76,7 @@ export default function StickyView({
   const pomodoroEndAtRef = useRef<number | null>(null);
   const pomodoroTimerRef = useRef<number | null>(null);
   const [pomodoroTip, setPomodoroTip] = useState<string | null>(null);
+  const [bookmarkTip, setBookmarkTip] = useState<{ text: string; x: number; y: number } | null>(null);
   const pomodoroTipTimerRef = useRef<number | null>(null);
   const pomodoroClickTimerRef = useRef<number | null>(null);
   const TaskItemWithIndent = TaskItem.extend({
@@ -143,6 +148,17 @@ export default function StickyView({
     }
     prevTaskIdRef.current = task.id;
   }, [editor, task?.id, task?.blocks]);
+
+  useEffect(() => {
+    if (!task) {
+      return;
+    }
+    const hasMatched = bookmarks.some((bookmark) => bookmark.taskId === task.id && bookmark.title !== task.title);
+    if (!hasMatched) {
+      return;
+    }
+    onBookmarksChange(bookmarks.map((bookmark) => (bookmark.taskId === task.id ? { ...bookmark, title: task.title } : bookmark)));
+  }, [task?.id, task?.title, bookmarks, onBookmarksChange]);
 
   useEffect(() => {
     editorRef.current = editor ?? null;
@@ -403,6 +419,33 @@ export default function StickyView({
     }
   };
 
+  const addCurrentTaskBookmark = () => {
+    if (!task) {
+      return;
+    }
+    onBookmarksChange((() => {
+      const existingIndex = bookmarks.findIndex((bookmark) => bookmark.taskId === task.id);
+      if (existingIndex === -1) {
+        return [...bookmarks, { taskId: task.id, title: task.title }];
+      }
+      const next = bookmarks.slice();
+      next[existingIndex] = { taskId: task.id, title: task.title };
+      return next;
+    })());
+  };
+
+  const removeBookmark = (taskId: string) => {
+    setBookmarkTip(null);
+    onBookmarksChange(bookmarks.filter((bookmark) => bookmark.taskId !== taskId));
+  };
+
+  const buildBookmarkLabel = (title: string) => `${(title || "未命名").slice(0, 2)}...`;
+
+  const showBookmarkTip = (event: React.MouseEvent<HTMLButtonElement>, title: string) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setBookmarkTip({ text: title, x: rect.left + rect.width / 2, y: rect.top - 8 });
+  };
+
   const handleContextMenu = (event: React.MouseEvent) => {
     event.preventDefault();
     if (!editor || !task) {
@@ -418,6 +461,14 @@ export default function StickyView({
       const pos = editor.view.posAtDOM(linkEl, 0);
       const node = editor.state.doc.nodeAt(pos);
       const items = [
+        {
+          label: "添加当前页到书签",
+          action: addCurrentTaskBookmark
+        },
+        {
+          label: "添加子任务",
+          action: appendChildTaskToEnd
+        },
         {
           label: "打开子任务",
           action: () => onNavigate(taskId, false)
@@ -439,10 +490,6 @@ export default function StickyView({
           }
         });
       }
-      items.unshift({
-        label: "添加子任务",
-        action: appendChildTaskToEnd
-      });
       onShowMenu({ x: event.clientX, y: event.clientY, items });
       return;
     }
@@ -455,6 +502,10 @@ export default function StickyView({
       x: event.clientX,
       y: event.clientY,
       items: [
+        {
+          label: "添加当前页到书签",
+          action: addCurrentTaskBookmark
+        },
         {
           label: "添加子任务",
           action: () => {
@@ -490,11 +541,16 @@ export default function StickyView({
 
   return (
     <div
-      className="sticky-surface flex h-screen flex-col gap-2 px-3 py-2 text-[#2b2b2b]"
+      className="sticky-surface flex h-screen flex-col px-3 py-2 text-[#2b2b2b]"
       style={{ "--sticky-base": stickyBackground } as React.CSSProperties}
       onContextMenu={handleContextMenu}
     >
       {pomodoroTip ? <div className="no-drag sticky-tip">{pomodoroTip}</div> : null}
+      {bookmarkTip ? (
+        <div className="no-drag sticky-bookmark-tip" style={{ left: bookmarkTip.x, top: bookmarkTip.y }}>
+          {bookmarkTip.text}
+        </div>
+      ) : null}
       <div className="drag-region sticky-titlebar">
         <div className="sticky-header">
           <div className="select-none text-sm font-semibold">{task.title}</div>
@@ -558,6 +614,34 @@ export default function StickyView({
             onForward={onHistoryForward}
           />
         </div>
+        {bookmarks.length > 0 ? (
+          <div className="no-drag sticky-bookmark-strip" aria-label="书签栏">
+            {bookmarks.map((bookmark) => (
+              <div key={bookmark.taskId} className="sticky-bookmark-item">
+                <button
+                  type="button"
+                  className="sticky-bookmark-link"
+                  onMouseEnter={(event) => showBookmarkTip(event, bookmark.title)}
+                  onMouseLeave={() => setBookmarkTip(null)}
+                  onClick={() => {
+                    setBookmarkTip(null);
+                    onNavigate(bookmark.taskId, false);
+                  }}
+                >
+                  {buildBookmarkLabel(bookmark.title)}
+                </button>
+                <button
+                  type="button"
+                  className="sticky-bookmark-remove"
+                  aria-label={`移除书签 ${bookmark.title}`}
+                  onClick={() => removeBookmark(bookmark.taskId)}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
       <div
         className={`sticky-editor scrollbar-hidden cursor-text ${isScrolling ? "sticky-scrollbar-visible" : ""}`}
