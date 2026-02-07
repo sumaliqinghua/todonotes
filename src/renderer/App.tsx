@@ -470,11 +470,31 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       }
     });
 
+    const offStickyShared = api.on("window:sticky-shared-updated", (payload) => {
+      if (windowType !== "sticky" || payload.rootTaskId !== rootTaskId) {
+        return;
+      }
+      if (Array.isArray(payload.stickyBookmarks)) {
+        setStickyBookmarks(payload.stickyBookmarks);
+      }
+      const next: Partial<typeof windowSettings> = {};
+      if (typeof payload.stickyColor === "string") {
+        next.stickyColor = payload.stickyColor;
+      }
+      if (typeof payload.stickyOpacity === "number") {
+        next.stickyOpacity = payload.stickyOpacity;
+      }
+      if (Object.keys(next).length > 0) {
+        updateWindowSettings(next);
+      }
+    });
+
     return () => {
       offUpdated();
       offDeleted();
       offReminder();
       offSettings();
+      offStickyShared();
     };
   }, []);
 

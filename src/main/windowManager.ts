@@ -1,10 +1,10 @@
 import { app, BrowserWindow, screen } from "electron";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
+import type { IpcEventMap } from "../shared/ipc";
 import type { WindowState } from "../shared/types";
 import {
   deleteWindowState,
-  findStickyBookmarksByContainedTaskId,
   getStickyBookmarksByRootTaskId,
   listWindowStates,
   upsertStickyBookmarksByRootTaskId,
@@ -18,6 +18,8 @@ const DEFAULT_STICKY_OPACITY = 1;
 const STICKY_MINI_HEIGHT = 36;
 const SKIN_PANEL_SIZE = { width: 320, height: 180 };
 const SKIN_PANEL_OFFSET = 0;
+
+type SharedStickyPatch = Pick<Partial<WindowState>, "stickyBookmarks" | "stickyColor" | "stickyOpacity">;
 
 const windows = new Map<string, BrowserWindow>();
 const windowStates = new Map<string, WindowState>();
@@ -142,12 +144,38 @@ function getSkinPanelBounds(ownerBounds: Electron.Rectangle) {
   return { x, y, width: panelWidth, height: panelHeight };
 }
 
-function createDefaultState(windowId: string, rootTaskId: string, windowType: "library" | "sticky"): WindowState {
+function normalizeNavPathTaskIds(rootTaskId: string, navPathTaskIds?: string[]) {
+  const uniqueIds: string[] = [];
+  const source = Array.isArray(navPathTaskIds) ? navPathTaskIds : [];
+  source.forEach((taskId) => {
+    if (typeof taskId !== "string" || taskId.length === 0) {
+      return;
+    }
+    if (uniqueIds.includes(taskId)) {
+      return;
+    }
+    uniqueIds.push(taskId);
+  });
+  if (uniqueIds.length === 0) {
+    return [rootTaskId];
+  }
+  if (uniqueIds[0] !== rootTaskId) {
+    return [rootTaskId, ...uniqueIds.filter((taskId) => taskId !== rootTaskId)];
+  }
+  return uniqueIds;
+}
+
+function createDefaultState(
+  windowId: string,
+  rootTaskId: string,
+  windowType: "library" | "sticky",
+  navPathTaskIds?: string[]
+): WindowState {
   const now = Date.now();
   return {
     windowId,
     rootTaskId,
-    navPathTaskIds: [rootTaskId],
+    navPathTaskIds: normalizeNavPathTaskIds(rootTaskId, navPathTaskIds),
     windowType,
     x: null,
     y: null,
@@ -170,29 +198,74 @@ function ensureRootTaskBookmark(rootTaskId: string, bookmarks: Array<{ taskId: s
   return [{ taskId: rootTaskId, title: "" }, ...bookmarks];
 }
 
+function pickSharedStickyPatch(partial: Partial<WindowState>, rootTaskId: string): SharedStickyPatch {
+  const patch: SharedStickyPatch = {};
+  if (Array.isArray(partial.stickyBookmarks)) {
+    patch.stickyBookmarks = ensureRootTaskBookmark(rootTaskId, partial.stickyBookmarks);
+  }
+  if (typeof partial.stickyColor === "string") {
+    patch.stickyColor = partial.stickyColor;
+  }
+  if (typeof partial.stickyOpacity === "number") {
+    patch.stickyOpacity = partial.stickyOpacity;
+  }
+  return patch;
+}
+
+function hasSharedStickyPatch(patch: SharedStickyPatch) {
+  return (
+    Array.isArray(patch.stickyBookmarks) ||
+    typeof patch.stickyColor === "string" ||
+    typeof patch.stickyOpacity === "number"
+  );
+}
+
+function updateStickyWindowBackground(windowId: string, state: WindowState) {
+  const win = windows.get(windowId);
+  if (!win) {
+    return;
+  }
+  win.setBackgroundColor(
+    resolveStickyBackground(state.stickyColor ?? DEFAULT_STICKY_COLOR, state.stickyOpacity ?? DEFAULT_STICKY_OPACITY)
+  );
+}
+
+function broadcastStickySharedUpdate(rootTaskId: string, patch: SharedStickyPatch) {
+  const payload: IpcEventMap["window:sticky-shared-updated"] = {
+    rootTaskId,
+    ...(Array.isArray(patch.stickyBookmarks) ? { stickyBookmarks: patch.stickyBookmarks } : {}),
+    ...(typeof patch.stickyColor === "string" ? { stickyColor: patch.stickyColor } : {}),
+    ...(typeof patch.stickyOpacity === "number" ? { stickyOpacity: patch.stickyOpacity } : {})
+  };
+  BrowserWindow.getAllWindows().forEach((win) => {
+    win.webContents.send("window:sticky-shared-updated", payload);
+  });
+}
+
 export function createTaskWindow(
   rootTaskId: string,
   existingState?: WindowState,
-  options?: { windowType?: "library" | "sticky" }
+  options?: { windowType?: "library" | "sticky"; navPathTaskIds?: string[] }
 ) {
   const windowId = existingState?.windowId ?? uuidv4();
   const windowType = existingState?.windowType ?? options?.windowType ?? "library";
-  const baseState = existingState ?? createDefaultState(windowId, rootTaskId, windowType);
+  const baseState =
+    existingState ?? createDefaultState(windowId, rootTaskId, windowType, options?.navPathTaskIds);
+  const navPathTaskIds = normalizeNavPathTaskIds(rootTaskId, options?.navPathTaskIds ?? baseState.navPathTaskIds);
   const persistedBookmarks = windowType === "sticky" ? getStickyBookmarksByRootTaskId(rootTaskId) : [];
-  const fallbackBookmarks =
-    windowType === "sticky" && persistedBookmarks.length === 0 ? findStickyBookmarksByContainedTaskId(rootTaskId) : [];
   const stickyBookmarks =
     windowType === "sticky"
       ? ensureRootTaskBookmark(
           rootTaskId,
-          persistedBookmarks.length > 0
-            ? persistedBookmarks
-            : fallbackBookmarks.length > 0
-              ? fallbackBookmarks
-              : baseState.stickyBookmarks
+          persistedBookmarks.length > 0 ? persistedBookmarks : Array.isArray(baseState.stickyBookmarks) ? baseState.stickyBookmarks : []
         )
       : baseState.stickyBookmarks;
-  const state = { ...baseState, stickyBookmarks };
+  const state: WindowState = {
+    ...baseState,
+    rootTaskId,
+    navPathTaskIds,
+    stickyBookmarks
+  };
 
   const win = new BrowserWindow({
     width: state.width,
@@ -367,8 +440,22 @@ export function updateWindowState(partial: Partial<WindowState> & { windowId: st
   if (!current) {
     return;
   }
-  const next = { ...current, ...partial, updatedAt: Date.now() };
+  const sharedPatch = current.windowType === "sticky" ? pickSharedStickyPatch(partial, current.rootTaskId) : {};
+  const nextStickyBookmarks =
+    Array.isArray(sharedPatch.stickyBookmarks) && current.windowType === "sticky"
+      ? sharedPatch.stickyBookmarks
+      : current.stickyBookmarks;
+  const merged: Partial<WindowState> = {
+    ...partial,
+    ...(Array.isArray(nextStickyBookmarks) ? { stickyBookmarks: nextStickyBookmarks } : {})
+  };
+  const next: WindowState = {
+    ...current,
+    ...merged,
+    updatedAt: Date.now()
+  };
   windowStates.set(partial.windowId, next);
+
   const win = windows.get(partial.windowId);
   if (win) {
     if (typeof partial.width === "number" || typeof partial.height === "number") {
@@ -386,13 +473,30 @@ export function updateWindowState(partial: Partial<WindowState> & { windowId: st
       win.setAlwaysOnTop(partial.alwaysOnTop);
     }
     if (current.windowType === "sticky" && (typeof partial.stickyColor === "string" || typeof partial.stickyOpacity === "number")) {
-      const color = typeof partial.stickyColor === "string" ? partial.stickyColor : current.stickyColor ?? DEFAULT_STICKY_COLOR;
-      const opacity = typeof partial.stickyOpacity === "number" ? partial.stickyOpacity : current.stickyOpacity ?? DEFAULT_STICKY_OPACITY;
-      win.setBackgroundColor(resolveStickyBackground(color, opacity));
+      updateStickyWindowBackground(partial.windowId, next);
     }
   }
+
   if (next.windowType === "sticky") {
     upsertStickyBookmarksByRootTaskId(next.rootTaskId, ensureRootTaskBookmark(next.rootTaskId, next.stickyBookmarks ?? []));
+
+    if (hasSharedStickyPatch(sharedPatch)) {
+      windowStates.forEach((state, windowId) => {
+        if (windowId === partial.windowId || state.windowType !== "sticky" || state.rootTaskId !== next.rootTaskId) {
+          return;
+        }
+        const syncedState: WindowState = {
+          ...state,
+          ...sharedPatch,
+          updatedAt: Date.now()
+        };
+        windowStates.set(windowId, syncedState);
+        if (typeof sharedPatch.stickyColor === "string" || typeof sharedPatch.stickyOpacity === "number") {
+          updateStickyWindowBackground(windowId, syncedState);
+        }
+      });
+      broadcastStickySharedUpdate(next.rootTaskId, sharedPatch);
+    }
   }
 }
 

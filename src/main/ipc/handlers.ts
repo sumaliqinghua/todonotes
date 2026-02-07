@@ -77,7 +77,15 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle("window:open", (_event, input: Parameters<IpcInvokeMap["window:open"]>[0]) => {
-    const { windowId } = createTaskWindow(input.rootTaskId, undefined, { windowType: input.windowType });
+    const windowType = input.windowType ?? "library";
+    if (windowType === "sticky") {
+      const chain = getAncestorChain(input.rootTaskId);
+      const sharedRootTaskId = chain[0]?.id ?? input.rootTaskId;
+      const navPathTaskIds = [...chain.map((task) => task.id), input.rootTaskId];
+      const { windowId } = createTaskWindow(sharedRootTaskId, undefined, { windowType: "sticky", navPathTaskIds });
+      return { windowId };
+    }
+    const { windowId } = createTaskWindow(input.rootTaskId, undefined, { windowType });
     return { windowId };
   });
 

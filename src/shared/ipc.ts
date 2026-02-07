@@ -1,4 +1,15 @@
-import type { Attachment, AttachmentAddInput, Reminder, ReminderCreateInput, SearchOptions, Task, TaskCreateInput, TaskUpdateInput, WindowState } from "./types";
+import type {
+  Attachment,
+  AttachmentAddInput,
+  Reminder,
+  ReminderCreateInput,
+  SearchOptions,
+  Task,
+  TaskCreateInput,
+  TaskUpdateInput,
+  WindowBookmark,
+  WindowState
+} from "./types";
 
 export interface IpcInvokeMap {
   "task:create": (input: TaskCreateInput) => Task;
@@ -39,6 +50,12 @@ export interface IpcEventMap {
   "task:deleted": { taskId: string };
   "reminder:trigger": { reminders: Reminder[] };
   "window:focus-task": { taskId: string };
+  "window:sticky-shared-updated": {
+    rootTaskId: string;
+    stickyBookmarks?: WindowBookmark[];
+    stickyColor?: string;
+    stickyOpacity?: number;
+  };
   "window:settings-updated": {
     windowId: string;
     stickyColor?: string;
