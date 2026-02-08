@@ -2,8 +2,10 @@ import { ipcMain, shell } from "electron";
 import type { IpcInvokeMap } from "../../shared/ipc";
 import {
   createTask,
+  hasTaskTitle,
   updateTask,
   getTaskById,
+  listParentsByChildId,
   listRootTasks,
   listChildTasks,
   getAncestorChain,
@@ -15,23 +17,130 @@ import { createEdge, deleteEdge } from "../db/edgesRepo";
 import { createReminder, deleteReminder, listDueReminders, listRemindersByTask, markReminderDone } from "../db/remindersRepo";
 import { addAttachment, getAttachment, listAttachments } from "../db/attachmentsRepo";
 import { broadcast } from "./events";
-import { createTaskWindow, getWindowById, getWindowState, updateWindowState, loadWindowStates, toggleSkinPanel } from "../windowManager";
+import {
+  createTaskWindow,
+  getWindowById,
+  getWindowState,
+  updateWindowState,
+  loadWindowStates,
+  replaceStickyBookmarkTitle,
+  toggleSkinPanel
+} from "../windowManager";
+import {
+  deriveChildCompletionChangesFromBlocksDiff,
+  normalizeTaskTitle,
+  syncChildStateInBlocks
+} from "../../shared/taskBlocksSync";
+
+function assertUniqueTaskTitle(title: string, options?: { excludeTaskId?: string }) {
+  const normalized = normalizeTaskTitle(title);
+  if (!normalized) {
+    return;
+  }
+  if (hasTaskTitle(normalized, { excludeTaskId: options?.excludeTaskId })) {
+    throw new Error(`任务标题“${normalized}”已存在，请使用其他名称`);
+  }
+}
+
+function isBlocksPayload(value: unknown): boolean {
+  return Boolean(value) && typeof value === "object";
+}
+
+function syncParentBlocksForChild(taskId: string, previousTitle: string | undefined, currentTitle: string, isCompleted: boolean) {
+  const parents = listParentsByChildId(taskId);
+  const updatedParentIds = new Set<string>();
+  parents.forEach((parent) => {
+    const synced = syncChildStateInBlocks(parent.blocks, { id: taskId, title: currentTitle, isCompleted }, previousTitle);
+    if (!synced.changed) {
+      return;
+    }
+    updateTask({ id: parent.id, blocks: synced.blocks });
+    updatedParentIds.add(parent.id);
+  });
+  return updatedParentIds;
+}
+
+function syncTaskCompletionFromParentBlocks(input: Parameters<IpcInvokeMap["task:update"]>[0]) {
+  if (!isBlocksPayload(input.blocks)) {
+    return;
+  }
+  const existing = getTaskById(input.id);
+  if (!existing) {
+    return;
+  }
+  const children = listChildTasks(input.id, { includeArchived: true, includeDeleted: false });
+  const completionChanges = deriveChildCompletionChangesFromBlocksDiff(existing.blocks, input.blocks!, children);
+  completionChanges.forEach((change) => {
+    const child = getTaskById(change.childId);
+    if (!child || child.isCompleted === change.isCompleted) {
+      return;
+    }
+    const updatedChild = updateTask({ id: child.id, isCompleted: change.isCompleted });
+    const touchedParents = syncParentBlocksForChild(updatedChild.id, child.title, updatedChild.title, updatedChild.isCompleted);
+    broadcast("task:updated", { taskId: updatedChild.id });
+    touchedParents?.forEach((parentId) => {
+      broadcast("task:updated", { taskId: parentId });
+    });
+  });
+}
+
+function syncTaskReferenceUpdates(task: ReturnType<typeof updateTask>, previous: ReturnType<typeof getTaskById>) {
+  const previousTitle = previous?.title;
+  const parentsUpdated = syncParentBlocksForChild(task.id, previousTitle, task.title, task.isCompleted);
+  if (previousTitle !== task.title) {
+    replaceStickyBookmarkTitle(task.id, task.title);
+  }
+  return parentsUpdated;
+}
 
 export function registerIpcHandlers() {
   ipcMain.handle("task:create", (_event, input: Parameters<IpcInvokeMap["task:create"]>[0]) => {
+    assertUniqueTaskTitle(input.title);
     const task = createTask(input);
     broadcast("task:updated", { taskId: task.id });
     return task;
   });
 
   ipcMain.handle("task:update", (_event, input: Parameters<IpcInvokeMap["task:update"]>[0]) => {
+    const existing = getTaskById(input.id);
+    if (!existing) {
+      throw new Error("任务不存在");
+    }
+
+    if (typeof input.title === "string") {
+      assertUniqueTaskTitle(input.title, { excludeTaskId: input.id });
+    }
+
+    syncTaskCompletionFromParentBlocks(input);
+
     const task = updateTask(input);
+
+    const touchedParents = syncTaskReferenceUpdates(task, existing);
+
     broadcast("task:updated", { taskId: task.id });
+    touchedParents?.forEach((parentId) => {
+      broadcast("task:updated", { taskId: parentId });
+    });
     return task;
   });
 
   ipcMain.handle("task:get", (_event, input: Parameters<IpcInvokeMap["task:get"]>[0]) => {
     return getTaskById(input.id);
+  });
+
+  ipcMain.handle("task:validateUniqueTitle", (_event, input: Parameters<IpcInvokeMap["task:validateUniqueTitle"]>[0]) => {
+    const normalized = normalizeTaskTitle(input.title);
+    if (!normalized) {
+      return { ok: true, normalizedTitle: "" };
+    }
+    if (hasTaskTitle(normalized, { excludeTaskId: input.excludeTaskId })) {
+      return {
+        ok: false,
+        normalizedTitle: normalized,
+        message: `任务标题“${normalized}”已存在，请使用其他名称`
+      };
+    }
+    return { ok: true, normalizedTitle: normalized };
   });
 
   ipcMain.handle("task:listRoots", (_event, input: Parameters<IpcInvokeMap["task:listRoots"]>[0]) => {
@@ -61,6 +170,7 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle("task:createFromBlock", (_event, input: Parameters<IpcInvokeMap["task:createFromBlock"]>[0]) => {
+    assertUniqueTaskTitle(input.title);
     const task = createTask({ title: input.title });
     createEdge(input.parentId, task.id);
     broadcast("task:updated", { taskId: input.parentId });

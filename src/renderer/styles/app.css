@@ -43,27 +43,53 @@
   }
 
   .task-link-block {
-    @apply rounded-full border border-app-accent/50 px-3 py-1 text-sm font-semibold text-app-text;
+    @apply rounded-xl border border-app-accent/50 px-2 py-1 text-sm text-app-text;
     display: inline-flex;
     align-items: center;
+    gap: 6px;
     width: fit-content;
     max-width: 100%;
     vertical-align: middle;
-    background: transparent;
+    background: rgba(111, 182, 255, 0.1);
+    line-height: 1.25;
+  }
+
+  .task-link-checkbox {
+    width: 14px;
+    height: 14px;
+    accent-color: rgba(111, 182, 255, 0.9);
+    pointer-events: auto;
+  }
+
+  .task-link-title {
+    display: inline-block;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .task-link-block[data-task-completed="1"] .task-link-title {
+    text-decoration: line-through;
+    opacity: 0.75;
   }
 
   .sticky-surface .task-link-block {
     @apply text-[#2b2b2b];
     border: 1px solid rgba(60, 44, 10, 0.45);
-    background: transparent;
+    background: rgba(255, 255, 255, 0.24);
     box-shadow: none;
     padding: 2px 8px;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     font-weight: 500;
-    border-radius: 999px;
+    border-radius: 12px;
     text-decoration: none;
+  }
+
+  .sticky-surface .task-link-checkbox {
+    accent-color: rgba(40, 40, 40, 0.85);
   }
 
   .editor-surface {

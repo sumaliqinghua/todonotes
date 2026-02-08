@@ -77,21 +77,21 @@ const normalizeBlocks = (blocks: Task["blocks"]) => {
     if (doc.type === "doc") {
       return {
         ...doc,
-        content: Array.isArray(doc.content) ? doc.content : []
+        content: Array.isArray(doc.content) ? [...doc.content] : []
       };
     }
   }
-  return { type: "doc", content: [{ type: "paragraph" }] };
+  return { type: "doc", content: [{ type: "paragraph" }] } as Record<string, any>;
 };
 
-const appendChildLinkToBlocks = (blocks: Task["blocks"], child: { taskId: string; title: string }) => {
-  const doc = normalizeBlocks(blocks) as { type: string; content: unknown[] };
+const appendChildLinkToBlocks = (blocks: Task["blocks"], child: { taskId: string; title: string; isCompleted: boolean }) => {
+  const doc = normalizeBlocks(blocks) as { type: string; content: any[] };
   const nextContent = doc.content.slice();
   nextContent.push({
     type: "taskLink",
-    attrs: { taskId: child.taskId, title: child.title }
+    attrs: { taskId: child.taskId, title: child.title, isCompleted: child.isCompleted }
   });
-  return { ...doc, content: nextContent };
+  return { ...doc, content: nextContent } as Task["blocks"];
 };
 
 export default function App({ windowId, rootTaskId, windowType }: Props) {
@@ -149,6 +149,48 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     return new Promise<string | null>((resolve) => {
       setPromptState({ ...options, resolve });
     });
+  };
+
+  const errorToMessage = (error: unknown, fallback: string) => {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    return fallback;
+  };
+
+  const validateUniqueTitle = async (title: string, excludeTaskId?: string) => {
+    const result = await api.invoke("task:validateUniqueTitle", { title, excludeTaskId });
+    if (!result.ok) {
+      throw new Error(result.message || `任务标题“${result.normalizedTitle}”已存在`);
+    }
+    return result.normalizedTitle || title.trim();
+  };
+
+  const renameTask = async (taskId: string, title: string) => {
+    const normalizedTitle = await validateUniqueTitle(title, taskId);
+    await api.invoke("task:update", { id: taskId, title: normalizedTitle });
+    if (windowType === "library") {
+      await refreshLibrary(searchQuery, libraryTab);
+    }
+    if (currentTaskIdRef.current === taskId) {
+      await loadTask(taskId);
+    }
+  };
+
+  const toggleLinkedTaskComplete = async (taskId: string, nextCompleted: boolean) => {
+    await api.invoke("task:update", { id: taskId, isCompleted: nextCompleted });
+    if (windowType === "library") {
+      await refreshLibrary(searchQuery, libraryTab);
+    }
+    if (currentTaskIdRef.current === taskId || currentTaskIdRef.current === currentTask?.id) {
+      const currentId = currentTaskIdRef.current;
+      if (currentId) {
+        await loadTask(currentId);
+      }
+    }
+    if (currentTask && currentTask.id !== taskId) {
+      await loadTask(currentTask.id);
+    }
   };
 
   const refreshLibrary = async (query = searchQuery, tab = libraryTab) => {
@@ -285,11 +327,16 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
   };
 
   const handleCreateRoot = async () => {
-    const input = await requestTitle({ title: "新任务标题", placeholder: "请输入任务标题" });
-    const title = input && input.trim() ? input.trim() : `新任务 ${new Date().toLocaleTimeString()}`;
-    const task = await api.invoke("task:create", { title });
-    await refreshLibrary();
-    await handleNavigate(task.id, true);
+    try {
+      const input = await requestTitle({ title: "新任务标题", placeholder: "请输入任务标题" });
+      const title = input && input.trim() ? input.trim() : `新任务 ${new Date().toLocaleTimeString()}`;
+      await validateUniqueTitle(title);
+      const task = await api.invoke("task:create", { title });
+      await refreshLibrary();
+      await handleNavigate(task.id, true);
+    } catch (error) {
+      alert(errorToMessage(error, "创建任务失败，请稍后重试"));
+    }
   };
 
   const handleLibraryMenu = (event: React.MouseEvent, task: Task) => {
@@ -315,16 +362,21 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             try {
               const input = await requestTitle({ title: "子任务标题", placeholder: "请输入子任务标题" });
               const title = input?.trim() || `新子任务 ${new Date().toLocaleTimeString()}`;
+              await validateUniqueTitle(title);
               const child = await api.invoke("task:createFromBlock", { parentId: task.id, title });
               const parent = await api.invoke("task:get", { id: task.id });
               if (parent) {
-                const nextBlocks = appendChildLinkToBlocks(parent.blocks, { taskId: child.id, title: child.title });
+                const nextBlocks = appendChildLinkToBlocks(parent.blocks, {
+                  taskId: child.id,
+                  title: child.title,
+                  isCompleted: child.isCompleted
+                });
                 await api.invoke("task:update", { id: task.id, blocks: nextBlocks });
               }
               await refreshLibrary();
             } catch (error) {
               console.error("添加子任务失败", error);
-              alert("添加子任务失败，请打开控制台查看错误");
+              alert(errorToMessage(error, "添加子任务失败，请稍后重试"));
             }
           }
         },
@@ -353,10 +405,10 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             if (!title) {
               return;
             }
-            await api.invoke("task:update", { id: task.id, title });
-            await refreshLibrary();
-            if (currentTaskId === task.id) {
-              await loadTask(task.id);
+            try {
+              await renameTask(task.id, title);
+            } catch (error) {
+              alert(errorToMessage(error, "重命名失败，请稍后重试"));
             }
           }
         },
@@ -384,11 +436,12 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
 
   const handleCreateChildFromBlock = async (title: string) => {
     if (!currentTask) {
-      return { taskId: "", title: "" };
+      return { taskId: "", title: "", isCompleted: false };
     }
+    await validateUniqueTitle(title);
     const task = await api.invoke("task:createFromBlock", { parentId: currentTask.id, title });
     await loadTask(currentTask.id);
-    return { taskId: task.id, title: task.title };
+    return { taskId: task.id, title: task.title, isCompleted: task.isCompleted };
   };
 
   useEffect(() => {
@@ -544,6 +597,8 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           canHistoryForward={canHistoryForward}
           onOpenInNewWindow={(taskId) => api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
           onCreateChildFromBlock={handleCreateChildFromBlock}
+          onToggleLinkedTaskComplete={toggleLinkedTaskComplete}
+          onRenameTaskTitle={renameTask}
           onRequestTitle={requestTitle}
           onShowMenu={setMenu}
           isPinned={alwaysOnTop}
@@ -596,18 +651,19 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
               onCreateRoot={handleCreateRoot}
               onContextMenu={handleLibraryMenu}
               onRenameTask={async (task, title) => {
-                await api.invoke("task:update", { id: task.id, title });
-                await refreshLibrary(searchQuery, libraryTab);
-                if (currentTaskIdRef.current === task.id) {
-                  await loadTask(task.id);
-                }
+                await renameTask(task.id, title);
               }}
               searchQuery={searchQuery}
               onSearchChange={handleSearchChange}
               onQuickAdd={async (title) => {
-                const task = await api.invoke("task:create", { title });
-                await refreshLibrary(searchQuery, libraryTab);
-                await handleNavigate(task.id, true);
+                try {
+                  await validateUniqueTitle(title);
+                  const task = await api.invoke("task:create", { title });
+                  await refreshLibrary(searchQuery, libraryTab);
+                  await handleNavigate(task.id, true);
+                } catch (error) {
+                  alert(errorToMessage(error, "创建任务失败，请稍后重试"));
+                }
               }}
               onToggleComplete={async (task) => {
                 await api.invoke("task:update", { id: task.id, isCompleted: !task.isCompleted });
@@ -632,6 +688,8 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             onOpenInNewWindow={(taskId) => api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
             onUpdateBlocks={(blocks) => currentTask && api.invoke("task:update", { id: currentTask.id, blocks })}
             onCreateChildFromBlock={handleCreateChildFromBlock}
+            onToggleLinkedTaskComplete={toggleLinkedTaskComplete}
+            onRenameTaskTitle={renameTask}
             onRequestTitle={requestTitle}
             onShowMenu={setMenu}
             />

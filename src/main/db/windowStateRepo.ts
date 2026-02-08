@@ -125,3 +125,27 @@ export function findStickyBookmarksByContainedTaskId(taskId: string) {
     .get(pattern) as { bookmarks?: unknown } | undefined;
   return parseStickyBookmarks(row?.bookmarks);
 }
+
+export function replaceStickyBookmarkTitleInStorage(taskId: string, nextTitle: string) {
+  const db = getDb();
+  const rows = db
+    .prepare("SELECT root_task_id, bookmarks FROM sticky_bookmarks WHERE bookmarks LIKE ?")
+    .all(`%\"taskId\":\"${taskId}\"%`) as Array<{ root_task_id: string; bookmarks: unknown }>;
+  const updateStmt = db.prepare("UPDATE sticky_bookmarks SET bookmarks = ?, updated_at = ? WHERE root_task_id = ?");
+  const now = Date.now();
+  rows.forEach((row) => {
+    const bookmarks = parseStickyBookmarks(row.bookmarks);
+    let changed = false;
+    const nextBookmarks = bookmarks.map((bookmark) => {
+      if (bookmark.taskId !== taskId || bookmark.title === nextTitle) {
+        return bookmark;
+      }
+      changed = true;
+      return { ...bookmark, title: nextTitle };
+    });
+    if (!changed) {
+      return;
+    }
+    updateStmt.run(JSON.stringify(nextBookmarks), now, row.root_task_id);
+  });
+}

@@ -15,3 +15,32 @@
   - 本记录仅覆盖“澄清 + 文档 + 计划”，尚未进入代码实现。
 - **关联假设**：
   - 无（本轮关键边界已由用户明确决策）。
+
+## [2026-02-08] M0.12 子任务交互增强（1.1~1.3）实现
+- **What（做了什么）**：
+  - 完成 `taskLink` 内联卡片化升级：新增 checkbox、完成态划线、`Library`/`Sticky` 一致样式。
+  - 打通链接块 checkbox ↔ 任务完成状态 ↔ 任务树展示的双向同步链路。
+  - 打通 markdown checkbox 与子任务完成状态的双向同步（关联项生效，非关联项不影响）。
+  - 新增 `Library` 详情页顶部标题与 `Sticky` 顶部标题双击重命名能力。
+  - 完成重命名联动：同步更新正文 `taskLink` 标题、关联 markdown checkbox 文本、sticky 书签标题。
+  - 增加任务标题唯一性校验（创建/重命名全链路提示），阻止新增同名任务。
+  - 增加 `taskBlocksSync` 逻辑与单元测试。
+- **Why（为什么这么做）**：
+  - 满足 `Docs/NEW_FEATURES.md` 1.1~1.3 的交付目标，并保证“可编辑入口多、状态一致性强”。
+  - 通过统一同步逻辑减少多窗口/多入口状态漂移。
+- **How（怎么实现的）**：
+  - 共享同步层：新增 `src/shared/taskBlocksSync.ts`，负责解析 blocks diff 与回写引用内容。
+  - 主进程：`src/main/ipc/handlers.ts` 在 `task:update` 前后插入同步逻辑，联动更新父任务 blocks 与书签。
+  - 数据层：`src/main/db/tasksRepo.ts` 增加标题唯一性查询与父任务查询能力；`src/main/windowManager.ts` 与 `src/main/db/windowStateRepo.ts` 增加书签标题存储回写。
+  - 渲染层：
+    - `src/renderer/components/TaskLinkNode.ts` 扩展 `isCompleted` 属性与 checkbox 渲染。
+    - `src/renderer/components/TaskDetail.tsx`、`src/renderer/components/StickyView.tsx` 增加链接块 checkbox 点击同步与顶部标题重命名。
+    - `src/renderer/App.tsx` 统一封装 `validateUniqueTitle`、`renameTask`、`toggleLinkedTaskComplete`。
+    - `src/renderer/styles/app.css` 更新卡片化样式。
+  - 测试：新增 `src/renderer/utils/__tests__/taskBlocksSync.test.ts`。
+- **已知限制**：
+  - 唯一性当前采用全库未删除任务范围，若后续只要求“同父级唯一”需调整校验策略。
+  - markdown 映射为完全匹配，不做模糊匹配。
+- **关联假设**：
+  - `[2026-02-08/M0.12] 任务标题唯一性按“全库未删除任务”校验`
+  - `[2026-02-08/M0.12] 关联 markdown checkbox 采用“标题完全匹配 + 独占匹配”`

@@ -7,6 +7,7 @@ import {
   deleteWindowState,
   getStickyBookmarksByRootTaskId,
   listWindowStates,
+  replaceStickyBookmarkTitleInStorage,
   upsertStickyBookmarksByRootTaskId,
   upsertWindowState
 } from "./db/windowStateRepo";
@@ -508,6 +509,40 @@ export function loadWindowStates(): WindowState[] {
   const states = listWindowStates();
   states.forEach((state) => windowStates.set(state.windowId, state));
   return states;
+}
+
+export function replaceStickyBookmarkTitle(taskId: string, nextTitle: string) {
+  if (!taskId) {
+    return;
+  }
+  replaceStickyBookmarkTitleInStorage(taskId, nextTitle);
+  windowStates.forEach((state, windowId) => {
+    if (state.windowType !== "sticky" || !Array.isArray(state.stickyBookmarks) || state.stickyBookmarks.length === 0) {
+      return;
+    }
+    let changed = false;
+    const nextBookmarks = state.stickyBookmarks.map((bookmark) => {
+      if (bookmark.taskId !== taskId) {
+        return bookmark;
+      }
+      if (bookmark.title === nextTitle) {
+        return bookmark;
+      }
+      changed = true;
+      return { ...bookmark, title: nextTitle };
+    });
+    if (!changed) {
+      return;
+    }
+    const nextState: WindowState = {
+      ...state,
+      stickyBookmarks: nextBookmarks,
+      updatedAt: Date.now()
+    };
+    windowStates.set(windowId, nextState);
+    upsertStickyBookmarksByRootTaskId(nextState.rootTaskId, ensureRootTaskBookmark(nextState.rootTaskId, nextBookmarks));
+    broadcastStickySharedUpdate(nextState.rootTaskId, { stickyBookmarks: nextBookmarks });
+  });
 }
 
 export function persistAllWindowStates() {

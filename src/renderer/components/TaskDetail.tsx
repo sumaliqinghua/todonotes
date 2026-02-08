@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
+import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
@@ -17,7 +18,7 @@ import { updateTaskItemIndent } from "../utils/taskIndent";
 const DEFAULT_BLOCKS = {
   type: "doc",
   content: [{ type: "paragraph" }]
-};
+} as any;
 
 interface Props {
   task: Task | null;
@@ -25,7 +26,9 @@ interface Props {
   onNavigate: (taskId: string, reset: boolean) => void;
   onOpenInNewWindow: (taskId: string) => void;
   onUpdateBlocks: (blocks: any) => void;
-  onCreateChildFromBlock: (title: string) => Promise<{ taskId: string; title: string }>;
+  onCreateChildFromBlock: (title: string) => Promise<{ taskId: string; title: string; isCompleted: boolean }>;
+  onToggleLinkedTaskComplete: (taskId: string, nextCompleted: boolean) => Promise<void>;
+  onRenameTaskTitle: (taskId: string, title: string) => Promise<void>;
   onRequestTitle: (options: { title: string; placeholder?: string; defaultValue?: string }) => Promise<string | null>;
   onShowMenu: (menu: ContextMenuState | null) => void;
   onHistoryBack: () => void;
@@ -41,6 +44,8 @@ export default function TaskDetail({
   onOpenInNewWindow,
   onUpdateBlocks,
   onCreateChildFromBlock,
+  onToggleLinkedTaskComplete,
+  onRenameTaskTitle,
   onRequestTitle,
   onShowMenu,
   onHistoryBack,
@@ -49,12 +54,21 @@ export default function TaskDetail({
   canHistoryForward
 }: Props) {
   const [title, setTitle] = useState(task?.title ?? "");
+  const [isEditingHeaderTitle, setIsEditingHeaderTitle] = useState(false);
   const blocksTimer = useRef<number | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const prevTaskIdRef = useRef<string | null>(null);
+  const skipHeaderCommitRef = useRef(false);
   const imageHandlers = createImageHandlers(editorRef);
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimer = useRef<number | null>(null);
+
+  const errorToMessage = (error: unknown, fallback: string) => {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    return fallback;
+  };
 
   const TaskItemWithIndent = TaskItem.extend({
     addAttributes() {
@@ -81,7 +95,7 @@ export default function TaskDetail({
 
   const editor = useEditor({
     extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode],
-    content: task?.blocks ?? DEFAULT_BLOCKS,
+    content: (task?.blocks as any) ?? DEFAULT_BLOCKS,
     editorProps: {
       handlePaste: imageHandlers.handlePaste,
       handleDrop: imageHandlers.handleDrop,
@@ -93,6 +107,34 @@ export default function TaskDetail({
         const target = event.target as HTMLElement | null;
         const linkEl = target?.closest?.(".task-link-block") as HTMLElement | null;
         const taskId = linkEl?.dataset.taskId;
+        const isCheckboxClick = Boolean(target?.closest?.(".task-link-checkbox"));
+        if (taskId && isCheckboxClick) {
+          event.preventDefault();
+          event.stopPropagation();
+          const currentCompleted = linkEl?.dataset.taskCompleted === "1";
+          const pos = linkEl ? editor?.view.posAtDOM(linkEl, 0) : null;
+          const node = typeof pos === "number" ? editor?.state.doc.nodeAt(pos) : null;
+          if (editor && typeof pos === "number" && node) {
+            editor
+              .chain()
+              .focus()
+              .command(({ tr, dispatch }) => {
+                tr.setNodeMarkup(pos, undefined, {
+                  ...(node.attrs as Record<string, unknown>),
+                  isCompleted: !currentCompleted
+                });
+                if (dispatch) {
+                  dispatch(tr);
+                }
+                return true;
+              })
+              .run();
+            const safePos = Math.min(pos + node.nodeSize, editor.state.doc.content.size);
+            editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, safePos)));
+          }
+          void onToggleLinkedTaskComplete(taskId, !currentCompleted);
+          return true;
+        }
         if (taskId) {
           onNavigate(taskId, false);
           return true;
@@ -112,13 +154,44 @@ export default function TaskDetail({
 
   useEffect(() => {
     setTitle(task?.title ?? "");
+    setIsEditingHeaderTitle(false);
   }, [task?.title]);
+
+  const commitHeaderTitle = async () => {
+    if (!task) {
+      setIsEditingHeaderTitle(false);
+      return;
+    }
+    if (skipHeaderCommitRef.current) {
+      skipHeaderCommitRef.current = false;
+      setIsEditingHeaderTitle(false);
+      return;
+    }
+    const nextTitle = title.trim();
+    if (!nextTitle) {
+      setTitle(task.title);
+      setIsEditingHeaderTitle(false);
+      return;
+    }
+    if (nextTitle === task.title) {
+      setIsEditingHeaderTitle(false);
+      return;
+    }
+    try {
+      await onRenameTaskTitle(task.id, nextTitle);
+      setIsEditingHeaderTitle(false);
+    } catch (error) {
+      setTitle(task.title);
+      setIsEditingHeaderTitle(false);
+      alert(errorToMessage(error, "重命名失败，请稍后重试"));
+    }
+  };
 
   useEffect(() => {
     if (!editor || !task) {
       return;
     }
-    const next = task.blocks ?? DEFAULT_BLOCKS;
+    const next = (task.blocks as any) ?? DEFAULT_BLOCKS;
     const current = editor.getJSON();
     const taskIdChanged = prevTaskIdRef.current !== task.id;
     if (taskIdChanged || (JSON.stringify(current) !== JSON.stringify(next) && !editor.isFocused)) {
@@ -177,31 +250,35 @@ export default function TaskDetail({
     if (!editor || !task) {
       return;
     }
-    const { state } = editor;
-    const { from, to, $from, $to } = state.selection;
-    const rawText = state.doc.textBetween(from, to, "\n").trim();
-    const isSingleLine = $from.sameParent($to) && !rawText.includes("\n");
-    if (!isSingleLine) {
-      alert("只能转换单行文本");
-      return;
+    try {
+      const { state } = editor;
+      const { from, to, $from, $to } = state.selection;
+      const rawText = state.doc.textBetween(from, to, "\n").trim();
+      const isSingleLine = $from.sameParent($to) && !rawText.includes("\n");
+      if (!isSingleLine) {
+        alert("只能转换单行文本");
+        return;
+      }
+      const text = rawText || "未命名任务";
+      const created = await onCreateChildFromBlock(text);
+      if (!created.taskId) {
+        return;
+      }
+      editor
+        .chain()
+        .focus()
+        .deleteRange({ from, to })
+        .insertContentAt(from, [
+          {
+            type: "taskLink",
+            attrs: { taskId: created.taskId, title: created.title, isCompleted: created.isCompleted }
+          },
+          { type: "text", text: " " }
+        ])
+        .run();
+    } catch (error) {
+      alert(errorToMessage(error, "转换为子任务失败，请稍后重试"));
     }
-    const text = rawText || "未命名任务";
-    const created = await onCreateChildFromBlock(text);
-    if (!created.taskId) {
-      return;
-    }
-    editor
-      .chain()
-      .focus()
-      .deleteRange({ from, to })
-      .insertContentAt(from, [
-        {
-          type: "taskLink",
-          attrs: { taskId: created.taskId, title: created.title }
-        },
-        { type: "text", text: " " }
-      ])
-      .run();
   };
 
   const toggleCheckbox = () => {
@@ -240,12 +317,12 @@ export default function TaskDetail({
         .focus()
         .insertContentAt(endPos, {
           type: "taskLink",
-          attrs: { taskId: created.taskId, title: created.title }
+          attrs: { taskId: created.taskId, title: created.title, isCompleted: created.isCompleted }
         })
         .run();
     } catch (error) {
       console.error("添加子任务失败", error);
-      alert("添加子任务失败，请打开控制台查看错误");
+      alert(errorToMessage(error, "添加子任务失败，请稍后重试"));
     }
   };
 
@@ -326,7 +403,39 @@ export default function TaskDetail({
   return (
     <div className="panel-card panel-enter flex h-full flex-col gap-4 p-5" onContextMenu={handleContextMenu}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="select-none text-lg font-semibold text-app-text font-display">{title}</div>
+        {isEditingHeaderTitle ? (
+          <input
+            className="input-field h-8 min-w-[240px] max-w-[520px] text-base font-semibold"
+            value={title}
+            autoFocus
+            onChange={(event) => setTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void commitHeaderTitle();
+              }
+              if (event.key === "Escape") {
+                skipHeaderCommitRef.current = true;
+                setTitle(task.title);
+                setIsEditingHeaderTitle(false);
+              }
+            }}
+            onBlur={() => {
+              void commitHeaderTitle();
+            }}
+          />
+        ) : (
+          <div
+            className="select-none text-lg font-semibold text-app-text font-display"
+            onDoubleClick={() => {
+              setTitle(task.title);
+              setIsEditingHeaderTitle(true);
+            }}
+            title="双击编辑标题"
+          >
+            {title}
+          </div>
+        )}
         <div className="text-[11px] text-app-muted">Ctrl/Cmd + Shift + T 转为子任务 | Ctrl/Cmd + Shift + S 切换复选框</div>
       </div>
       <div className="flex items-center justify-between gap-2">

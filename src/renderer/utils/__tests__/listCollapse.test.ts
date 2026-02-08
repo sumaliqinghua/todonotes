@@ -27,10 +27,11 @@ describe("listCollapse", () => {
     const editor = createEditor();
     const pos = findFirstListItemPos(editor.state.doc);
     expect(pos).not.toBeNull();
-    const tr = toggleListItemCollapsed(editor.state, pos as number);
+    const resolvedPos = Number(pos);
+    const tr = toggleListItemCollapsed(editor.state, resolvedPos);
     expect(tr).not.toBeNull();
     const nextState = editor.state.apply(tr!);
-    expect(nextState.doc.nodeAt(pos as number)?.attrs.collapsed).toBe(true);
+    expect(nextState.doc.nodeAt(resolvedPos)?.attrs.collapsed).toBe(true);
     editor.destroy();
   });
 

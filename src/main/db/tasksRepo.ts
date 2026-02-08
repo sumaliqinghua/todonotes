@@ -47,6 +47,25 @@ export function createTask(input: TaskCreateInput): Task {
   return getTaskById(id)!;
 }
 
+export function hasTaskTitle(title: string, options?: { excludeTaskId?: string }): boolean {
+  const db = getDb();
+  const normalized = title.trim();
+  if (!normalized) {
+    return false;
+  }
+  const excludeTaskId = options?.excludeTaskId;
+  if (excludeTaskId) {
+    const row = db
+      .prepare(
+        "SELECT 1 FROM tasks WHERE lower(trim(title)) = lower(trim(?)) AND id != ? AND is_deleted = 0 LIMIT 1"
+      )
+      .get(normalized, excludeTaskId);
+    return Boolean(row);
+  }
+  const row = db.prepare("SELECT 1 FROM tasks WHERE lower(trim(title)) = lower(trim(?)) AND is_deleted = 0 LIMIT 1").get(normalized);
+  return Boolean(row);
+}
+
 export function updateTask(input: TaskUpdateInput): Task {
   const db = getDb();
   const existing = getTaskById(input.id);
@@ -108,6 +127,16 @@ export function listChildTasks(parentId: string, options?: { includeArchived?: b
   }
   sql += " ORDER BY t.updated_at DESC";
   const rows = db.prepare(sql).all(parentId);
+  return rows.map(rowToTask);
+}
+
+export function listParentsByChildId(childId: string): Task[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      "SELECT t.* FROM tasks t JOIN edges e ON t.id = e.parent_task_id WHERE e.child_task_id = ? ORDER BY e.created_at ASC"
+    )
+    .all(childId);
   return rows.map(rowToTask);
 }
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
+import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
@@ -25,7 +26,9 @@ interface Props {
   ancestors: Task[];
   onNavigate: (taskId: string, reset: boolean) => void;
   onOpenInNewWindow: (taskId: string) => void;
-  onCreateChildFromBlock: (title: string) => Promise<{ taskId: string; title: string }>;
+  onCreateChildFromBlock: (title: string) => Promise<{ taskId: string; title: string; isCompleted: boolean }>;
+  onToggleLinkedTaskComplete: (taskId: string, nextCompleted: boolean) => Promise<void>;
+  onRenameTaskTitle: (taskId: string, title: string) => Promise<void>;
   onRequestTitle: (options: { title: string; placeholder?: string; defaultValue?: string }) => Promise<string | null>;
   onShowMenu: (menu: { x: number; y: number; items: { label: string; action: () => void }[] } | null) => void;
   onHistoryBack: () => void;
@@ -50,6 +53,8 @@ export default function StickyView({
   onNavigate,
   onOpenInNewWindow,
   onCreateChildFromBlock,
+  onToggleLinkedTaskComplete,
+  onRenameTaskTitle,
   onRequestTitle,
   onShowMenu,
   onHistoryBack,
@@ -64,6 +69,8 @@ export default function StickyView({
   bookmarks,
   onBookmarksChange
 }: Props) {
+  const [headerTitle, setHeaderTitle] = useState(task?.title ?? "");
+  const [isEditingHeaderTitle, setIsEditingHeaderTitle] = useState(false);
   const saveTimer = useRef<number | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const prevTaskIdRef = useRef<string | null>(null);
@@ -79,6 +86,14 @@ export default function StickyView({
   const [bookmarkTip, setBookmarkTip] = useState<{ text: string; x: number; y: number } | null>(null);
   const pomodoroTipTimerRef = useRef<number | null>(null);
   const pomodoroClickTimerRef = useRef<number | null>(null);
+  const skipHeaderCommitRef = useRef(false);
+
+  const errorToMessage = (error: unknown, fallback: string) => {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    return fallback;
+  };
   const TaskItemWithIndent = TaskItem.extend({
     addAttributes() {
       return {
@@ -103,7 +118,7 @@ export default function StickyView({
   }).configure({ nested: true });
   const editor = useEditor({
     extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode],
-    content: task?.blocks ?? { type: "doc", content: [{ type: "paragraph" }] },
+    content: (task?.blocks as any) ?? { type: "doc", content: [{ type: "paragraph" }] },
     editable: true,
     editorProps: {
       handlePaste: imageHandlers.handlePaste,
@@ -116,6 +131,34 @@ export default function StickyView({
         const target = event.target as HTMLElement | null;
         const linkEl = target?.closest?.(".task-link-block") as HTMLElement | null;
         const taskId = linkEl?.dataset.taskId;
+        const isCheckboxClick = Boolean(target?.closest?.(".task-link-checkbox"));
+        if (taskId && isCheckboxClick) {
+          event.preventDefault();
+          event.stopPropagation();
+          const currentCompleted = linkEl?.dataset.taskCompleted === "1";
+          const pos = linkEl ? editor?.view.posAtDOM(linkEl, 0) : null;
+          const node = typeof pos === "number" ? editor?.state.doc.nodeAt(pos) : null;
+          if (editor && typeof pos === "number" && node) {
+            editor
+              .chain()
+              .focus()
+              .command(({ tr, dispatch }) => {
+                tr.setNodeMarkup(pos, undefined, {
+                  ...(node.attrs as Record<string, unknown>),
+                  isCompleted: !currentCompleted
+                });
+                if (dispatch) {
+                  dispatch(tr);
+                }
+                return true;
+              })
+              .run();
+            const safePos = Math.min(pos + node.nodeSize, editor.state.doc.content.size);
+            editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, safePos)));
+          }
+          void onToggleLinkedTaskComplete(taskId, !currentCompleted);
+          return true;
+        }
         if (taskId) {
           onNavigate(taskId, false);
           return true;
@@ -140,7 +183,7 @@ export default function StickyView({
     if (!editor || !task) {
       return;
     }
-    const next = task.blocks ?? { type: "doc", content: [{ type: "paragraph" }] };
+    const next = (task.blocks as any) ?? { type: "doc", content: [{ type: "paragraph" }] };
     const current = editor.getJSON();
     const taskIdChanged = prevTaskIdRef.current !== task.id;
     if (taskIdChanged || (JSON.stringify(current) !== JSON.stringify(next) && !editor.isFocused)) {
@@ -148,6 +191,11 @@ export default function StickyView({
     }
     prevTaskIdRef.current = task.id;
   }, [editor, task?.id, task?.blocks]);
+
+  useEffect(() => {
+    setHeaderTitle(task?.title ?? "");
+    setIsEditingHeaderTitle(false);
+  }, [task?.title]);
 
   useEffect(() => {
     if (!task) {
@@ -159,6 +207,36 @@ export default function StickyView({
     }
     onBookmarksChange(bookmarks.map((bookmark) => (bookmark.taskId === task.id ? { ...bookmark, title: task.title } : bookmark)));
   }, [task?.id, task?.title, bookmarks, onBookmarksChange]);
+
+  const commitHeaderTitle = async () => {
+    if (!task) {
+      setIsEditingHeaderTitle(false);
+      return;
+    }
+    if (skipHeaderCommitRef.current) {
+      skipHeaderCommitRef.current = false;
+      setIsEditingHeaderTitle(false);
+      return;
+    }
+    const nextTitle = headerTitle.trim();
+    if (!nextTitle) {
+      setHeaderTitle(task.title);
+      setIsEditingHeaderTitle(false);
+      return;
+    }
+    if (nextTitle === task.title) {
+      setIsEditingHeaderTitle(false);
+      return;
+    }
+    try {
+      await onRenameTaskTitle(task.id, nextTitle);
+      setIsEditingHeaderTitle(false);
+    } catch (error) {
+      setHeaderTitle(task.title);
+      setIsEditingHeaderTitle(false);
+      alert(errorToMessage(error, "重命名失败，请稍后重试"));
+    }
+  };
 
   useEffect(() => {
     editorRef.current = editor ?? null;
@@ -347,31 +425,35 @@ export default function StickyView({
     if (!editor || !task) {
       return;
     }
-    const { state } = editor;
-    const { from, to, $from, $to } = state.selection;
-    const rawText = state.doc.textBetween(from, to, "\n").trim();
-    const isSingleLine = $from.sameParent($to) && !rawText.includes("\n");
-    if (!isSingleLine) {
-      alert("只能转换单行文本");
-      return;
+    try {
+      const { state } = editor;
+      const { from, to, $from, $to } = state.selection;
+      const rawText = state.doc.textBetween(from, to, "\n").trim();
+      const isSingleLine = $from.sameParent($to) && !rawText.includes("\n");
+      if (!isSingleLine) {
+        alert("只能转换单行文本");
+        return;
+      }
+      const text = rawText || "未命名任务";
+      const created = await onCreateChildFromBlock(text);
+      if (!created.taskId) {
+        return;
+      }
+      editor
+        .chain()
+        .focus()
+        .deleteRange({ from, to })
+        .insertContentAt(from, [
+          {
+            type: "taskLink",
+            attrs: { taskId: created.taskId, title: created.title, isCompleted: created.isCompleted }
+          },
+          { type: "text", text: " " }
+        ])
+        .run();
+    } catch (error) {
+      alert(errorToMessage(error, "转换为子任务失败，请稍后重试"));
     }
-    const text = rawText || "未命名任务";
-    const created = await onCreateChildFromBlock(text);
-    if (!created.taskId) {
-      return;
-    }
-    editor
-      .chain()
-      .focus()
-      .deleteRange({ from, to })
-      .insertContentAt(from, [
-        {
-          type: "taskLink",
-          attrs: { taskId: created.taskId, title: created.title }
-        },
-        { type: "text", text: " " }
-      ])
-      .run();
   };
 
   const toggleCheckbox = () => {
@@ -410,12 +492,12 @@ export default function StickyView({
         .focus()
         .insertContentAt(endPos, {
           type: "taskLink",
-          attrs: { taskId: created.taskId, title: created.title }
+          attrs: { taskId: created.taskId, title: created.title, isCompleted: created.isCompleted }
         })
         .run();
     } catch (error) {
       console.error("添加子任务失败", error);
-      alert("添加子任务失败，请打开控制台查看错误");
+      alert(errorToMessage(error, "添加子任务失败，请稍后重试"));
     }
   };
 
@@ -553,7 +635,39 @@ export default function StickyView({
       ) : null}
       <div className="drag-region sticky-titlebar">
         <div className="sticky-header">
-          <div className="select-none text-sm font-semibold">{task.title}</div>
+          {isEditingHeaderTitle ? (
+            <input
+              className="input-field no-drag h-7 min-w-[180px] max-w-[320px] rounded-lg border-black/30 bg-white/65 px-2 py-1 text-sm font-semibold text-black"
+              value={headerTitle}
+              autoFocus
+              onChange={(event) => setHeaderTitle(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void commitHeaderTitle();
+                }
+                if (event.key === "Escape") {
+                  skipHeaderCommitRef.current = true;
+                  setHeaderTitle(task.title);
+                  setIsEditingHeaderTitle(false);
+                }
+              }}
+              onBlur={() => {
+                void commitHeaderTitle();
+              }}
+            />
+          ) : (
+            <div
+              className="select-none text-sm font-semibold"
+              onDoubleClick={() => {
+                setHeaderTitle(task.title);
+                setIsEditingHeaderTitle(true);
+              }}
+              title="双击编辑标题"
+            >
+              {task.title}
+            </div>
+          )}
           <div className="no-drag sticky-controls flex items-center gap-2 text-xs">
             <button
               type="button"
