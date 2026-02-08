@@ -192,17 +192,22 @@ function createDefaultState(
   };
 }
 
-function ensureRootTaskBookmark(rootTaskId: string, bookmarks: Array<{ taskId: string; title: string }>) {
-  if (bookmarks.some((bookmark) => bookmark.taskId === rootTaskId)) {
-    return bookmarks;
+function getInitialStickyBookmarks(
+  rootTaskId: string,
+  persistedBookmarks: Array<{ taskId: string; title: string }>,
+  baseBookmarks: Array<{ taskId: string; title: string }>
+) {
+  const source = persistedBookmarks.length > 0 ? persistedBookmarks : baseBookmarks;
+  if (source.length > 0) {
+    return source;
   }
-  return [{ taskId: rootTaskId, title: "" }, ...bookmarks];
+  return [{ taskId: rootTaskId, title: "" }];
 }
 
-function pickSharedStickyPatch(partial: Partial<WindowState>, rootTaskId: string): SharedStickyPatch {
+function pickSharedStickyPatch(partial: Partial<WindowState>): SharedStickyPatch {
   const patch: SharedStickyPatch = {};
   if (Array.isArray(partial.stickyBookmarks)) {
-    patch.stickyBookmarks = ensureRootTaskBookmark(rootTaskId, partial.stickyBookmarks);
+    patch.stickyBookmarks = partial.stickyBookmarks;
   }
   if (typeof partial.stickyColor === "string") {
     patch.stickyColor = partial.stickyColor;
@@ -256,10 +261,7 @@ export function createTaskWindow(
   const persistedBookmarks = windowType === "sticky" ? getStickyBookmarksByRootTaskId(rootTaskId) : [];
   const stickyBookmarks =
     windowType === "sticky"
-      ? ensureRootTaskBookmark(
-          rootTaskId,
-          persistedBookmarks.length > 0 ? persistedBookmarks : Array.isArray(baseState.stickyBookmarks) ? baseState.stickyBookmarks : []
-        )
+      ? getInitialStickyBookmarks(rootTaskId, persistedBookmarks, Array.isArray(baseState.stickyBookmarks) ? baseState.stickyBookmarks : [])
       : baseState.stickyBookmarks;
   const state: WindowState = {
     ...baseState,
@@ -328,7 +330,7 @@ export function createTaskWindow(
   win.on("closed", () => {
     const latest = windowStates.get(windowId);
     if (latest?.windowType === "sticky") {
-      upsertStickyBookmarksByRootTaskId(latest.rootTaskId, ensureRootTaskBookmark(latest.rootTaskId, latest.stickyBookmarks ?? []));
+      upsertStickyBookmarksByRootTaskId(latest.rootTaskId, latest.stickyBookmarks ?? []);
     }
     windows.delete(windowId);
     const panel = skinPanels.get(windowId);
@@ -441,7 +443,7 @@ export function updateWindowState(partial: Partial<WindowState> & { windowId: st
   if (!current) {
     return;
   }
-  const sharedPatch = current.windowType === "sticky" ? pickSharedStickyPatch(partial, current.rootTaskId) : {};
+  const sharedPatch = current.windowType === "sticky" ? pickSharedStickyPatch(partial) : {};
   const nextStickyBookmarks =
     Array.isArray(sharedPatch.stickyBookmarks) && current.windowType === "sticky"
       ? sharedPatch.stickyBookmarks
@@ -479,7 +481,7 @@ export function updateWindowState(partial: Partial<WindowState> & { windowId: st
   }
 
   if (next.windowType === "sticky") {
-    upsertStickyBookmarksByRootTaskId(next.rootTaskId, ensureRootTaskBookmark(next.rootTaskId, next.stickyBookmarks ?? []));
+    upsertStickyBookmarksByRootTaskId(next.rootTaskId, next.stickyBookmarks ?? []);
 
     if (hasSharedStickyPatch(sharedPatch)) {
       windowStates.forEach((state, windowId) => {
@@ -540,7 +542,7 @@ export function replaceStickyBookmarkTitle(taskId: string, nextTitle: string) {
       updatedAt: Date.now()
     };
     windowStates.set(windowId, nextState);
-    upsertStickyBookmarksByRootTaskId(nextState.rootTaskId, ensureRootTaskBookmark(nextState.rootTaskId, nextBookmarks));
+    upsertStickyBookmarksByRootTaskId(nextState.rootTaskId, nextBookmarks);
     broadcastStickySharedUpdate(nextState.rootTaskId, { stickyBookmarks: nextBookmarks });
   });
 }
