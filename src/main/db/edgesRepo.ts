@@ -15,6 +15,11 @@ export function deleteEdge(parentId: string, childId: string) {
   db.prepare("DELETE FROM edges WHERE parent_task_id = ? AND child_task_id = ?").run(parentId, childId);
 }
 
+export function deleteEdgesByChildId(childId: string) {
+  const db = getDb();
+  db.prepare("DELETE FROM edges WHERE child_task_id = ?").run(childId);
+}
+
 export function listChildrenIds(parentId: string): string[] {
   const db = getDb();
   const rows = db.prepare("SELECT child_task_id FROM edges WHERE parent_task_id = ?").all(parentId) as {

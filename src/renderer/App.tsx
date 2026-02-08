@@ -8,6 +8,7 @@ import TaskDetail from "./components/TaskDetail";
 import TitleBar from "./components/TitleBar";
 import PromptModal from "./components/PromptModal";
 import { useAppStore, type LibraryTab } from "./store/useAppStore";
+import { appendTaskLinkToBlocksEnd, removeTaskLinksByTaskId } from "../shared/taskBlocksSync";
 
 interface Props {
   windowId: string;
@@ -69,29 +70,6 @@ const filterTaskTreeByTab = (nodes: TaskTreeNode[], tab: LibraryTab): TaskTreeNo
     const filtered = filterTreeNode(node, tab);
     return filtered ? [filtered] : [];
   });
-};
-
-const normalizeBlocks = (blocks: Task["blocks"]) => {
-  if (blocks && typeof blocks === "object" && !Array.isArray(blocks)) {
-    const doc = blocks as { type?: string; content?: unknown };
-    if (doc.type === "doc") {
-      return {
-        ...doc,
-        content: Array.isArray(doc.content) ? [...doc.content] : []
-      };
-    }
-  }
-  return { type: "doc", content: [{ type: "paragraph" }] } as Record<string, any>;
-};
-
-const appendChildLinkToBlocks = (blocks: Task["blocks"], child: { taskId: string; title: string; isCompleted: boolean }) => {
-  const doc = normalizeBlocks(blocks) as { type: string; content: any[] };
-  const nextContent = doc.content.slice();
-  nextContent.push({
-    type: "taskLink",
-    attrs: { taskId: child.taskId, title: child.title, isCompleted: child.isCompleted }
-  });
-  return { ...doc, content: nextContent } as Task["blocks"];
 };
 
 export default function App({ windowId, rootTaskId, windowType }: Props) {
@@ -176,6 +154,139 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     }
     if (currentTaskIdRef.current === taskId) {
       await loadTask(taskId);
+    }
+  };
+
+  const loadInsertableChildren = async () => {
+    if (!currentTask) {
+      return [] as Task[];
+    }
+    const children = await api.invoke("task:listChildrenFlat", {
+      parentId: currentTask.id,
+      includeArchived: false,
+      includeDeleted: false
+    });
+    return children;
+  };
+
+  const selectTaskFromCandidates = async (
+    candidates: Task[],
+    options?: { title?: string; placeholder?: string; listTitle?: string }
+  ) => {
+    if (candidates.length === 0) {
+      return null;
+    }
+    const lines = candidates.map((task, index) => `${index + 1}. ${task.title}`).join("\n");
+    const raw = await requestTitle({
+      title: options?.title ?? "选择任务",
+      placeholder: options?.placeholder,
+      defaultValue: `1\n\n${options?.listTitle ?? "可选任务"}：\n${lines}`
+    });
+    if (!raw) {
+      return null;
+    }
+    const firstLine = raw.split("\n")[0]?.trim() ?? "";
+    const byIndex = Number(firstLine);
+    if (!Number.isNaN(byIndex) && byIndex >= 1 && byIndex <= candidates.length) {
+      return candidates[byIndex - 1];
+    }
+    const normalized = firstLine.toLowerCase();
+    return candidates.find((task) => task.title.trim().toLowerCase() === normalized) ?? null;
+  };
+
+  const insertExistingChildLink = async (childId: string) => {
+    if (!currentTask || !childId) {
+      return;
+    }
+    await api.invoke("task:insertExistingChildLink", { parentId: currentTask.id, childId });
+    await loadTask(currentTask.id);
+  };
+
+  const moveChildReference = async (childId: string) => {
+    if (!currentTask) {
+      return;
+    }
+    const candidateParents = await api.invoke("task:listRoots", {
+      includeArchived: false,
+      includeDeleted: false
+    });
+    const options = candidateParents.filter((task) => task.id !== currentTask.id && task.id !== childId);
+    if (options.length === 0) {
+      alert("暂无可移动到的目标父任务");
+      return;
+    }
+    const target = await selectTaskFromCandidates(options, {
+      title: "移动到...",
+      placeholder: "输入目标父任务序号或完整标题",
+      listTitle: "目标父任务"
+    });
+    if (!target) {
+      alert("未找到目标父任务");
+      return;
+    }
+    try {
+      await api.invoke("task:moveChildReference", {
+        sourceParentId: currentTask.id,
+        targetParentId: target.id,
+        childId
+      });
+    } catch (error) {
+      alert(errorToMessage(error, "移动子任务引用失败"));
+      return;
+    }
+    await loadTask(currentTask.id);
+    if (windowType === "library") {
+      await refreshLibrary(searchQuery, libraryTab);
+    }
+  };
+
+  const moveTaskInTree = async (input: { taskId: string; targetParentId?: string }) => {
+    const { taskId, targetParentId } = input;
+    if (!taskId) {
+      return;
+    }
+    const parents = await api.invoke("task:listParents", { childId: taskId });
+    const fromParentId = parents[0]?.id;
+    if (fromParentId === targetParentId) {
+      return;
+    }
+    try {
+      await api.invoke("edge:reparent", { childId: taskId, fromParentId, toParentId: targetParentId });
+    } catch (error) {
+      alert(errorToMessage(error, "拖拽调整层级失败"));
+      return;
+    }
+
+    if (fromParentId) {
+      const fromParent = await api.invoke("task:get", { id: fromParentId });
+      if (fromParent) {
+        const removed = removeTaskLinksByTaskId(fromParent.blocks, taskId);
+        if (removed.changed) {
+          await api.invoke("task:update", { id: fromParent.id, blocks: removed.blocks });
+        }
+      }
+    }
+
+    if (targetParentId) {
+      const targetParent = await api.invoke("task:get", { id: targetParentId });
+      const moved = await api.invoke("task:get", { id: taskId });
+      if (targetParent && moved) {
+        const appended = appendTaskLinkToBlocksEnd(targetParent.blocks, {
+          taskId: moved.id,
+          title: moved.title,
+          isCompleted: moved.isCompleted
+        });
+        if (appended.changed) {
+          await api.invoke("task:update", { id: targetParent.id, blocks: appended.blocks });
+        }
+      }
+    }
+
+    if (windowType === "library") {
+      await refreshLibrary(searchQuery, libraryTab);
+    }
+    if (currentTaskIdRef.current) {
+      await loadTask(currentTaskIdRef.current);
     }
   };
 
@@ -385,12 +496,14 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
               const child = await api.invoke("task:createFromBlock", { parentId: task.id, title });
               const parent = await api.invoke("task:get", { id: task.id });
               if (parent) {
-                const nextBlocks = appendChildLinkToBlocks(parent.blocks, {
+                const appended = appendTaskLinkToBlocksEnd(parent.blocks, {
                   taskId: child.id,
                   title: child.title,
                   isCompleted: child.isCompleted
                 });
-                await api.invoke("task:update", { id: task.id, blocks: nextBlocks });
+                if (appended.changed) {
+                  await api.invoke("task:update", { id: task.id, blocks: appended.blocks });
+                }
               }
               await refreshLibrary();
             } catch (error) {
@@ -402,6 +515,25 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
         {
           label: "打开置顶便签",
           action: () => api.invoke("window:open", { rootTaskId: task.id, windowType: "sticky" })
+        },
+        {
+          label: "归档已完成子任务",
+          action: async () => {
+            const confirmed = window.confirm("将归档该任务下所有已完成子任务，并移除正文链接块，是否继续？");
+            if (!confirmed) {
+              return;
+            }
+            const result = await api.invoke("task:archiveCompletedChildren", { parentId: task.id });
+            if (result.archivedIds.length === 0) {
+              alert("没有可归档的已完成子任务");
+              return;
+            }
+            await refreshLibrary();
+            if (currentTaskIdRef.current === task.id) {
+              await loadTask(task.id);
+            }
+            alert(`已归档 ${result.archivedIds.length} 个子任务`);
+          }
         },
         {
           label: task.isArchived ? "取消归档" : "归档",
@@ -616,6 +748,9 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           canHistoryForward={canHistoryForward}
           onOpenInNewWindow={(taskId) => api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
           onCreateChildFromBlock={handleCreateChildFromBlock}
+          onLoadInsertableChildren={loadInsertableChildren}
+          onInsertExistingChildLink={insertExistingChildLink}
+          onMoveChildReference={moveChildReference}
           onToggleLinkedTaskComplete={toggleLinkedTaskComplete}
           onRenameTaskTitle={renameTask}
           onRequestTitle={requestTitle}
@@ -691,6 +826,9 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
                   await loadTask(task.id);
                 }
               }}
+              onMoveTask={(input) => {
+                void moveTaskInTree(input);
+              }}
               activeTab={libraryTab}
               onTabChange={(tab) => setLibraryTab(tab)}
             />
@@ -707,6 +845,9 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             onOpenInNewWindow={(taskId) => api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
             onUpdateBlocks={(blocks) => currentTask && api.invoke("task:update", { id: currentTask.id, blocks })}
             onCreateChildFromBlock={handleCreateChildFromBlock}
+            onLoadInsertableChildren={loadInsertableChildren}
+            onInsertExistingChildLink={insertExistingChildLink}
+            onMoveChildReference={moveChildReference}
             onToggleLinkedTaskComplete={toggleLinkedTaskComplete}
             onRenameTaskTitle={renameTask}
             onRequestTitle={requestTitle}

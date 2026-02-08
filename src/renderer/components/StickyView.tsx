@@ -9,6 +9,7 @@ import type { Task, WindowBookmark } from "../../shared/types";
 import { TaskLinkNode } from "./TaskLinkNode";
 import Breadcrumb from "./Breadcrumb";
 import HistoryNav from "./HistoryNav";
+import TaskPickerDropdown from "./TaskPickerDropdown";
 import { createImageHandlers } from "../utils/editorImages";
 import { handleCopy } from "../utils/editorMarkdown";
 import { CollapsibleListItem } from "../utils/listCollapse";
@@ -27,6 +28,9 @@ interface Props {
   onNavigate: (taskId: string, reset: boolean) => void;
   onOpenInNewWindow: (taskId: string) => void;
   onCreateChildFromBlock: (title: string) => Promise<{ taskId: string; title: string; isCompleted: boolean }>;
+  onLoadInsertableChildren: () => Promise<Task[]>;
+  onInsertExistingChildLink: (childId: string) => Promise<void>;
+  onMoveChildReference: (childId: string) => Promise<void>;
   onToggleLinkedTaskComplete: (taskId: string, nextCompleted: boolean) => Promise<void>;
   onRenameTaskTitle: (taskId: string, title: string) => Promise<void>;
   onRequestTitle: (options: { title: string; placeholder?: string; defaultValue?: string }) => Promise<string | null>;
@@ -53,6 +57,9 @@ export default function StickyView({
   onNavigate,
   onOpenInNewWindow,
   onCreateChildFromBlock,
+  onLoadInsertableChildren,
+  onInsertExistingChildLink,
+  onMoveChildReference,
   onToggleLinkedTaskComplete,
   onRenameTaskTitle,
   onRequestTitle,
@@ -558,6 +565,12 @@ export default function StickyView({
         {
           label: "在新便签中打开",
           action: () => onOpenInNewWindow(taskId)
+        },
+        {
+          label: "移动到...",
+          action: () => {
+            void onMoveChildReference(taskId);
+          }
         }
       ];
       if (node) {
@@ -587,6 +600,18 @@ export default function StickyView({
         {
           label: "添加当前页到书签",
           action: addCurrentTaskBookmark
+        },
+        {
+          label: "插入已有子任务链接",
+          action: () => {
+            void onLoadInsertableChildren().then(async (children) => {
+              if (children.length === 0) {
+                alert("当前任务下暂无可选子任务");
+                return;
+              }
+              await onInsertExistingChildLink(children[0].id);
+            });
+          }
         },
         {
           label: "添加子任务",
@@ -669,6 +694,13 @@ export default function StickyView({
             </div>
           )}
           <div className="no-drag sticky-controls flex items-center gap-2 text-xs">
+            <TaskPickerDropdown
+              variant="light"
+              loadTasks={onLoadInsertableChildren}
+              onSelectTask={async (selected) => {
+                await onInsertExistingChildLink(selected.id);
+              }}
+            />
             <button
               type="button"
               className="pomodoro-button no-drag"

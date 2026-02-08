@@ -10,6 +10,7 @@ import Breadcrumb from "./Breadcrumb";
 import HistoryNav from "./HistoryNav";
 import { TaskLinkNode } from "./TaskLinkNode";
 import type { ContextMenuState } from "./ContextMenu";
+import TaskPickerDropdown from "./TaskPickerDropdown";
 import { createImageHandlers } from "../utils/editorImages";
 import { handleCopy } from "../utils/editorMarkdown";
 import { CollapsibleListItem } from "../utils/listCollapse";
@@ -27,6 +28,9 @@ interface Props {
   onOpenInNewWindow: (taskId: string) => void;
   onUpdateBlocks: (blocks: any) => void;
   onCreateChildFromBlock: (title: string) => Promise<{ taskId: string; title: string; isCompleted: boolean }>;
+  onLoadInsertableChildren: () => Promise<Task[]>;
+  onInsertExistingChildLink: (childId: string) => Promise<void>;
+  onMoveChildReference: (childId: string) => Promise<void>;
   onToggleLinkedTaskComplete: (taskId: string, nextCompleted: boolean) => Promise<void>;
   onRenameTaskTitle: (taskId: string, title: string) => Promise<void>;
   onRequestTitle: (options: { title: string; placeholder?: string; defaultValue?: string }) => Promise<string | null>;
@@ -44,6 +48,9 @@ export default function TaskDetail({
   onOpenInNewWindow,
   onUpdateBlocks,
   onCreateChildFromBlock,
+  onLoadInsertableChildren,
+  onInsertExistingChildLink,
+  onMoveChildReference,
   onToggleLinkedTaskComplete,
   onRenameTaskTitle,
   onRequestTitle,
@@ -348,6 +355,12 @@ export default function TaskDetail({
         {
           label: "在新便签中打开",
           action: () => onOpenInNewWindow(taskId)
+        },
+        {
+          label: "移动到...",
+          action: () => {
+            void onMoveChildReference(taskId);
+          }
         }
       ];
       if (node) {
@@ -436,7 +449,13 @@ export default function TaskDetail({
             {title}
           </div>
         )}
-        <div className="text-[11px] text-app-muted">Ctrl/Cmd + Shift + T 转为子任务 | Ctrl/Cmd + Shift + S 切换复选框</div>
+        <TaskPickerDropdown
+          variant="dark"
+          loadTasks={onLoadInsertableChildren}
+          onSelectTask={async (selected) => {
+            await onInsertExistingChildLink(selected.id);
+          }}
+        />
       </div>
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">

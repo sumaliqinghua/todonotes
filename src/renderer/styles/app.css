@@ -257,12 +257,20 @@
     @apply flex items-center gap-2 rounded-2xl border border-transparent px-3 py-2 text-sm transition;
   }
 
+  .task-row[data-drop-active="true"] {
+    @apply border-app-accent/70 bg-app-accent/10;
+  }
+
   .task-row:hover {
     @apply border-app-border/70 bg-app-panelAlt/70;
   }
 
   .task-row[data-completed="true"] {
     @apply text-app-muted line-through;
+  }
+
+  [data-drop-root="true"] {
+    @apply rounded-2xl border border-app-accent/60 bg-app-accent/10;
   }
 
   .panel-enter {

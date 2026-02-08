@@ -107,3 +107,67 @@
   - 该修复只针对 sticky 书签“可删除性”与“首次默认注入”策略，不改变其它共享同步机制。
 - **关联假设**：
   - 无新增假设。
+
+## [2026-02-08] M0.13（1.4~1.7）子任务交互扩展首轮落地
+- **What（做了什么）**：
+  - 实现“插入已有子任务链接”（1.4）：支持在详情页/便签右键菜单插入当前父任务已有子任务的链接入口。
+  - 实现“拖拽子任务改层级”（1.5）：任务树支持拖到某节点作为子级，或拖到空白区成为根级。
+  - 实现“移动子任务引用”（1.6）：`taskLink` 右键新增“移动到...”，支持从当前父任务移动到目标父任务，并同步更新原/目标正文链接。
+  - 实现“一键归档已完成子任务”（1.7）：详情页按钮 + 便签工具按钮触发批量归档，归档后自动清理父任务正文相关链接。
+  - 补充 blocks 工具函数与测试：新增 taskLink 追加/删除能力及对应单测。
+- **Why（为什么这么做）**：
+  - 按 `Docs/NEW_FEATURES.md` 1.4~1.7 直接补齐“子任务入口恢复、层级调整、跨父移动、正文瘦身”四个高频管理动作，减少手工维护成本。
+- **How（怎么实现的）**：
+  - 共享逻辑：`src/shared/taskBlocksSync.ts` 新增 `appendTaskLinkToBlocksEnd`、`removeTaskLinksByTaskId`、`hasTaskLinkByTaskId`。
+  - IPC 契约：`src/shared/ipc.ts` 新增 `task:listChildrenFlat`、`task:listParents`、`task:insertExistingChildLink`、`task:moveChildReference`、`task:archiveCompletedChildren`、`edge:reparent`。
+  - 主进程：
+    - `src/main/ipc/handlers.ts` 新增 1.4~1.7 对应 handler 与 `assertValidParenting` 防循环校验。
+    - `src/main/db/tasksRepo.ts` 新增 `listChildTasksByCreatedAt`。
+    - `src/main/db/edgesRepo.ts` 新增 `deleteEdgesByChildId` 供重挂接使用。
+  - 渲染层：
+    - `src/renderer/App.tsx` 新增选择子任务/父任务、插入链接、移动引用、批量归档、拖拽重挂接逻辑。
+    - `src/renderer/components/TaskDetail.tsx`、`src/renderer/components/StickyView.tsx` 增加“插入已有子任务链接”“移动到...”及归档入口。
+    - `src/renderer/components/LibraryPanel.tsx` 新增拖拽交互。
+    - `src/renderer/styles/app.css` 新增拖拽落点高亮样式。
+  - 测试：`src/renderer/utils/__tests__/taskBlocksSync.test.ts` 从 6 条扩展到 9 条，覆盖插入/幂等/删除引用。
+- **已知限制**：
+  - 当前选择交互基于输入序号/完整标题（非可视化搜索列表）。
+  - 拖拽先支持“作为子级/根级”两种层级变更，不含同级前后排序。
+  - 归档操作保留 `edges` 关系，仅移除正文链接块。
+- **关联假设**：
+  - `[2026-02-08/M0.13] 子任务选择流程先使用“序号/完整标题输入”`
+  - `[2026-02-08/M0.13] 任务树拖拽目标先支持“作为子级”与“拖回根级”`
+  - `[2026-02-08/M0.13] 归档已完成子任务不删除父子边，仅做“子任务归档 + 父正文移除链接”`
+
+## [2026-02-09] M0.13-R1 插入子任务改下拉 + 归档入口迁移
+- **What（做了什么）**：
+  - 将“插入已有子任务链接”从输入弹窗改为顶部下拉选择，详情页与便签页统一。
+  - 移除任务详情页顶部“归档已完成子任务”按钮。
+  - 将“归档已完成子任务”迁移到任务树右键菜单。
+- **Why（为什么这么做）**：
+  - 用户要求交互与“兄弟级面包屑下拉”一致，减少输入负担。
+  - 归档动作更适合放在任务树管理入口，避免详情页顶部控件拥挤。
+- **How（怎么实现的）**：
+  - 新增 `src/renderer/components/TaskPickerDropdown.tsx`，复用 `breadcrumb-popover` 风格实现浮层下拉。
+  - `src/renderer/components/TaskDetail.tsx`：顶部接入 `TaskPickerDropdown`；移除右键中的“插入已有子任务链接”快捷动作，避免绕过下拉。
+  - `src/renderer/components/StickyView.tsx`：顶部 controls 接入 `TaskPickerDropdown`（light 变体）；移除 sticky 顶部归档按钮。
+  - `src/renderer/App.tsx`：新增 `loadInsertableChildren` 与参数化 `insertExistingChildLink(childId)`；任务树右键菜单新增“归档已完成子任务”。
+  - 验证：`tsc`（main/preload/renderer）+ `npm run test` 全部通过。
+- **已知限制**：
+  - 便签右键菜单仍保留“插入已有子任务链接”入口，但当前实现会默认选首项（后续可按需要完全移除该右键项）。
+- **关联假设**：
+  - `[2026-02-08/M0.13] 子任务选择流程先使用“序号/完整标题输入”（已推翻）
+
+## [2026-02-09] M0.13-R2 兄弟级下拉过滤已删除/已归档任务
+- **What（做了什么）**：
+  - 调整面包屑兄弟级下拉的数据查询与结果过滤，排除已删除/已归档任务。
+- **Why（为什么这么做）**：
+  - 保持兄弟级跳转列表聚焦“可操作的进行中任务”，避免无效跳转项干扰。
+- **How（怎么实现的）**：
+  - `src/renderer/components/Breadcrumb.tsx`：`task:listChildren` 与 `task:listRoots` 查询参数统一改为 `includeArchived: false`、`includeDeleted: false`。
+  - `src/renderer/components/Breadcrumb.tsx`：本地过滤条件补充 `!task.isArchived && !task.isDeleted`。
+  - 回归验证：`tsc`（main/preload/renderer）+ `npm run test` 全通过。
+- **已知限制**：
+  - 若未来希望在下拉中显示“已归档”分组入口，需要在当前过滤基础上增加显式分组 UI。
+- **关联假设**：
+  - 无新增假设。

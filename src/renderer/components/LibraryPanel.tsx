@@ -16,6 +16,7 @@ interface Props {
   onSearchChange: (value: string) => void;
   onQuickAdd: (title: string) => void;
   onToggleComplete: (task: Task) => void;
+  onMoveTask: (input: { taskId: string; targetParentId?: string }) => void;
   activeTab: "inProgress" | "completed" | "deleted" | "archived";
   onTabChange: (tab: "inProgress" | "completed" | "deleted" | "archived") => void;
 }
@@ -30,6 +31,7 @@ export default function LibraryPanel({
   onSearchChange,
   onQuickAdd,
   onToggleComplete,
+  onMoveTask,
   activeTab,
   onTabChange
 }: Props) {
@@ -37,6 +39,8 @@ export default function LibraryPanel({
   const [collapsedIds, setCollapsedIds] = React.useState<Set<string>>(new Set());
   const [editingTaskId, setEditingTaskId] = React.useState<string | null>(null);
   const [editingTitle, setEditingTitle] = React.useState("");
+  const [dragTaskId, setDragTaskId] = React.useState<string | null>(null);
+  const [dropHint, setDropHint] = React.useState<{ taskId: string; mode: "asChild" | "asRoot" } | null>(null);
 
   const toggleCollapse = (taskId: string) => {
     setCollapsedIds((prev) => {
@@ -70,6 +74,38 @@ export default function LibraryPanel({
               }
             }}
             onContextMenu={(event) => onContextMenu(event, node.task)}
+            draggable
+            onDragStart={(event) => {
+              setDragTaskId(node.task.id);
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", node.task.id);
+            }}
+            onDragEnd={() => {
+              setDragTaskId(null);
+              setDropHint(null);
+            }}
+            onDragOver={(event) => {
+              const movingId = dragTaskId ?? event.dataTransfer.getData("text/plain");
+              if (!movingId || movingId === node.task.id) {
+                return;
+              }
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              setDropHint({ taskId: node.task.id, mode: "asChild" });
+            }}
+            onDragLeave={() => {
+              setDropHint((prev) => (prev?.taskId === node.task.id ? null : prev));
+            }}
+            onDrop={(event) => {
+              const movingId = dragTaskId ?? event.dataTransfer.getData("text/plain");
+              if (!movingId || movingId === node.task.id) {
+                return;
+              }
+              event.preventDefault();
+              setDropHint(null);
+              onMoveTask({ taskId: movingId, targetParentId: node.task.id });
+            }}
+            data-drop-active={dropHint?.taskId === node.task.id && dropHint.mode === "asChild" ? "true" : "false"}
           >
             <button
               type="button"
@@ -185,7 +221,33 @@ export default function LibraryPanel({
         ))}
       </div>
       <div className="flex-1 overflow-auto pr-1">
-        <div className="flex flex-col gap-2">{renderNodes(nodes, 0)}</div>
+        <div
+          className="flex flex-col gap-2"
+          onDragOver={(event) => {
+            const movingId = dragTaskId ?? event.dataTransfer.getData("text/plain");
+            if (!movingId) {
+              return;
+            }
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            setDropHint({ taskId: "__root__", mode: "asRoot" });
+          }}
+          onDragLeave={() => {
+            setDropHint((prev) => (prev?.taskId === "__root__" ? null : prev));
+          }}
+          onDrop={(event) => {
+            const movingId = dragTaskId ?? event.dataTransfer.getData("text/plain");
+            if (!movingId) {
+              return;
+            }
+            event.preventDefault();
+            setDropHint(null);
+            onMoveTask({ taskId: movingId });
+          }}
+          data-drop-root={dropHint?.taskId === "__root__" && dropHint.mode === "asRoot" ? "true" : "false"}
+        >
+          {renderNodes(nodes, 0)}
+        </div>
       </div>
     </div>
   );

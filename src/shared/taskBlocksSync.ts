@@ -279,6 +279,138 @@ export function normalizeTaskTitle(title: string): string {
   return normalizeTitle(title);
 }
 
+function normalizeDocBlocks(blocks: JsonValue): JsonRecord {
+  if (isRecord(blocks) && nodeType(blocks) === "doc") {
+    return {
+      ...blocks,
+      content: Array.isArray(blocks.content) ? [...blocks.content] : []
+    };
+  }
+  return {
+    type: "doc",
+    content: [{ type: "paragraph" }]
+  };
+}
+
+export function hasTaskLinkByTaskId(blocks: JsonValue, taskId: string): boolean {
+  if (!taskId) {
+    return false;
+  }
+  const visit = (value: JsonValue): boolean => {
+    if (Array.isArray(value)) {
+      return value.some((item) => visit(item));
+    }
+    if (!isRecord(value)) {
+      return false;
+    }
+    if (nodeType(value) === "taskLink" && isRecord(value.attrs) && value.attrs.taskId === taskId) {
+      return true;
+    }
+    if (Array.isArray(value.content)) {
+      return value.content.some((item) => visit(item));
+    }
+    return false;
+  };
+  return visit(blocks);
+}
+
+export function appendTaskLinkToBlocksEnd(
+  blocks: JsonValue,
+  child: { taskId: string; title: string; isCompleted: boolean }
+): { blocks: JsonValue; changed: boolean } {
+  if (!child.taskId) {
+    return { blocks, changed: false };
+  }
+  if (hasTaskLinkByTaskId(blocks, child.taskId)) {
+    return { blocks, changed: false };
+  }
+  const doc = normalizeDocBlocks(blocks);
+  const content = Array.isArray(doc.content) ? doc.content.slice() : [];
+  content.push({
+    type: "taskLink",
+    attrs: {
+      taskId: child.taskId,
+      title: child.title,
+      isCompleted: child.isCompleted
+    }
+  });
+  return {
+    blocks: {
+      ...doc,
+      content
+    },
+    changed: true
+  };
+}
+
+export function removeTaskLinksByTaskId(
+  blocks: JsonValue,
+  taskId: string
+): { blocks: JsonValue; changed: boolean; removedCount: number } {
+  if (!taskId) {
+    return { blocks, changed: false, removedCount: 0 };
+  }
+
+  const visit = (
+    value: JsonValue
+  ): { value: JsonValue; changed: boolean; removedCount: number; removeSelf: boolean } => {
+    if (Array.isArray(value)) {
+      let changed = false;
+      let removedCount = 0;
+      const nextArray: JsonValue[] = [];
+      value.forEach((item) => {
+        const next = visit(item);
+        removedCount += next.removedCount;
+        if (next.removeSelf) {
+          changed = true;
+          return;
+        }
+        if (next.changed) {
+          changed = true;
+        }
+        nextArray.push(next.value);
+      });
+      return changed
+        ? { value: nextArray, changed: true, removedCount, removeSelf: false }
+        : { value, changed: false, removedCount: 0, removeSelf: false };
+    }
+
+    if (!isRecord(value)) {
+      return { value, changed: false, removedCount: 0, removeSelf: false };
+    }
+
+    if (nodeType(value) === "taskLink" && isRecord(value.attrs) && value.attrs.taskId === taskId) {
+      return { value, changed: true, removedCount: 1, removeSelf: true };
+    }
+
+    if (!Array.isArray(value.content)) {
+      return { value, changed: false, removedCount: 0, removeSelf: false };
+    }
+
+    const nextContent = visit(value.content);
+    if (!nextContent.changed) {
+      return { value, changed: false, removedCount: 0, removeSelf: false };
+    }
+
+    return {
+      value: {
+        ...value,
+        content: nextContent.value
+      },
+      changed: true,
+      removedCount: nextContent.removedCount,
+      removeSelf: false
+    };
+  };
+
+  const next = visit(blocks);
+  return {
+    blocks: next.value,
+    changed: next.changed,
+    removedCount: next.removedCount
+  };
+}
+
 export function deriveChildCompletionChangesFromBlocksDiff(
   previousBlocks: JsonValue,
   nextBlocks: JsonValue,

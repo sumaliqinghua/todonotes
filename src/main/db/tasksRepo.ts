@@ -130,6 +130,24 @@ export function listChildTasks(parentId: string, options?: { includeArchived?: b
   return rows.map(rowToTask);
 }
 
+export function listChildTasksByCreatedAt(
+  parentId: string,
+  options?: { includeArchived?: boolean; includeDeleted?: boolean }
+): Task[] {
+  const db = getDb();
+  let sql =
+    "SELECT t.* FROM tasks t JOIN edges e ON t.id = e.child_task_id WHERE e.parent_task_id = ?";
+  if (!options?.includeDeleted) {
+    sql += " AND t.is_deleted = 0";
+  }
+  if (!options?.includeArchived) {
+    sql += " AND t.is_archived = 0";
+  }
+  sql += " ORDER BY e.created_at ASC";
+  const rows = db.prepare(sql).all(parentId);
+  return rows.map(rowToTask);
+}
+
 export function listParentsByChildId(childId: string): Task[] {
   const db = getDb();
   const rows = db

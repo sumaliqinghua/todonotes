@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendTaskLinkToBlocksEnd,
   deriveChildCompletionChangesFromBlocksDiff,
+  removeTaskLinksByTaskId,
   syncChildStateInBlocks
 } from "../../../shared/taskBlocksSync";
 
@@ -288,5 +290,65 @@ describe("taskBlocksSync", () => {
     expect(paragraphContent[0].attrs.taskId).toBe("child-1");
     expect(paragraphContent[0].attrs.title).toBe("新标题");
     expect(paragraphContent[0].attrs.isCompleted).toBe(true);
+  });
+
+  it("可在 blocks 末尾插入不存在的 taskLink", () => {
+    const blocks = {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "正文" }] }]
+    };
+    const inserted = appendTaskLinkToBlocksEnd(blocks, {
+      taskId: "child-9",
+      title: "恢复入口",
+      isCompleted: false
+    });
+    expect(inserted.changed).toBe(true);
+    const next = inserted.blocks as any;
+    const lastNode = next.content[next.content.length - 1];
+    expect(lastNode.type).toBe("taskLink");
+    expect(lastNode.attrs.taskId).toBe("child-9");
+  });
+
+  it("重复插入同一个 taskLink 时保持幂等", () => {
+    const blocks = {
+      type: "doc",
+      content: [
+        {
+          type: "taskLink",
+          attrs: { taskId: "child-9", title: "恢复入口", isCompleted: false }
+        }
+      ]
+    };
+    const inserted = appendTaskLinkToBlocksEnd(blocks, {
+      taskId: "child-9",
+      title: "恢复入口",
+      isCompleted: false
+    });
+    expect(inserted.changed).toBe(false);
+  });
+
+  it("可按 taskId 删除正文中的 taskLink 引用", () => {
+    const blocks = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "taskLink", attrs: { taskId: "child-9", title: "待移除", isCompleted: false } },
+            { type: "text", text: "保留文本" }
+          ]
+        },
+        {
+          type: "taskLink",
+          attrs: { taskId: "child-9", title: "待移除2", isCompleted: true }
+        }
+      ]
+    };
+    const removed = removeTaskLinksByTaskId(blocks as any, "child-9");
+    expect(removed.changed).toBe(true);
+    expect(removed.removedCount).toBe(2);
+    const next = removed.blocks as any;
+    expect(next.content[0].content[0].type).toBe("text");
+    expect(next.content.length).toBe(1);
   });
 });

@@ -18,14 +18,20 @@ export interface IpcInvokeMap {
   "task:get": (input: { id: string }) => Task | null;
   "task:listRoots": (input: { includeArchived?: boolean; includeDeleted?: boolean }) => Task[];
   "task:listChildren": (input: { parentId: string; includeArchived?: boolean; includeDeleted?: boolean }) => Task[];
+  "task:listChildrenFlat": (input: { parentId: string; includeArchived?: boolean; includeDeleted?: boolean }) => Task[];
   "task:getAncestors": (input: { taskId: string }) => Task[];
+  "task:listParents": (input: { childId: string }) => Task[];
   "task:delete": (input: { id: string }) => void;
   "task:restore": (input: { id: string }) => void;
   "task:search": (input: SearchOptions) => Task[];
   "task:createFromBlock": (input: { parentId: string; title: string }) => Task;
+  "task:insertExistingChildLink": (input: { parentId: string; childId: string }) => Task;
+  "task:moveChildReference": (input: { sourceParentId: string; targetParentId: string; childId: string }) => Task;
+  "task:archiveCompletedChildren": (input: { parentId: string }) => { archivedIds: string[] };
 
   "edge:create": (input: { parentId: string; childId: string }) => void;
   "edge:delete": (input: { parentId: string; childId: string }) => void;
+  "edge:reparent": (input: { childId: string; fromParentId?: string; toParentId?: string }) => void;
 
   "window:open": (input: { rootTaskId: string; windowType?: "library" | "sticky" }) => { windowId: string };
   "window:getState": (input: { windowId: string }) => WindowState | null;

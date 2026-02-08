@@ -25,9 +25,9 @@ export default function Breadcrumb({ ancestors, current, onNavigate, variant = "
     setLoading(true);
     const parent = ancestors[ancestors.length - 1] ?? null;
     const data = parent
-      ? await window.api.invoke("task:listChildren", { parentId: parent.id, includeArchived: true, includeDeleted: false })
-      : await window.api.invoke("task:listRoots", { includeArchived: true, includeDeleted: false });
-    const next = (data as Task[]).filter((task) => task.id !== current.id);
+      ? await window.api.invoke("task:listChildren", { parentId: parent.id, includeArchived: false, includeDeleted: false })
+      : await window.api.invoke("task:listRoots", { includeArchived: false, includeDeleted: false });
+    const next = (data as Task[]).filter((task) => task.id !== current.id && !task.isArchived && !task.isDeleted);
     setSiblings(next);
     setLoading(false);
   };
