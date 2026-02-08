@@ -133,6 +133,8 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
   const searchTimer = useRef<number | null>(null);
   const currentTaskIdRef = useRef<string | null>(null);
   const navPathRef = useRef<string[]>([]);
+  const loadTaskRequestIdRef = useRef(0);
+  const refreshLibraryRequestIdRef = useRef(0);
 
   const currentTaskId = navPath[navPath.length - 1];
   useEffect(() => {
@@ -194,17 +196,24 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
   };
 
   const refreshLibrary = async (query = searchQuery, tab = libraryTab) => {
+    const requestId = ++refreshLibraryRequestIdRef.current;
     const trimmed = query.trim();
     if (trimmed) {
       const includeArchived = tab === "archived" || tab === "deleted";
       const includeDeleted = tab === "deleted";
       const results = await api.invoke("task:search", { query: trimmed, includeArchived, includeDeleted });
+      if (requestId !== refreshLibraryRequestIdRef.current) {
+        return;
+      }
       const filtered = results.filter((task) => matchesTabFilter(task, tab));
       setLibraryTasks(filtered);
       setTaskTree([]);
       return;
     }
     const roots = await api.invoke("task:listRoots", { includeArchived: true, includeDeleted: true });
+    if (requestId !== refreshLibraryRequestIdRef.current) {
+      return;
+    }
     const visited = new Set<string>();
     const buildNode = async (task: Task): Promise<TaskTreeNode> => {
       if (visited.has(task.id)) {
@@ -226,18 +235,28 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     for (const root of roots) {
       treeNodes.push(await buildNode(root));
     }
+    if (requestId !== refreshLibraryRequestIdRef.current) {
+      return;
+    }
     const filteredTree = filterTaskTreeByTab(treeNodes, tab);
     setLibraryTasks([]);
     setTaskTree(filteredTree);
   };
 
   const loadTask = async (taskId: string) => {
+    const requestId = ++loadTaskRequestIdRef.current;
     const task = await api.invoke("task:get", { id: taskId });
+    if (requestId !== loadTaskRequestIdRef.current) {
+      return;
+    }
     if (!task) {
       setCurrentTask(null);
       return;
     }
     const chain = await api.invoke("task:getAncestors", { taskId });
+    if (requestId !== loadTaskRequestIdRef.current) {
+      return;
+    }
     setCurrentTask(task);
     setAncestors(chain);
   };

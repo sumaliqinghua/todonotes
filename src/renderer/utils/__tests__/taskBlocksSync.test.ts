@@ -236,4 +236,57 @@ describe("taskBlocksSync", () => {
     expect(next.content[1].content[0].attrs.checked).toBe(true);
     expect(next.content[1].content[0].content[0].content[0].text).toBe("新标题");
   });
+
+
+  it("重命名时保留 taskItem 内 taskLink 节点样式", () => {
+    const blocks = {
+      type: "doc",
+      content: [
+        {
+          type: "taskList",
+          content: [
+            {
+              type: "taskItem",
+              attrs: { checked: false },
+              content: [
+                {
+                  type: "paragraph",
+                  content: [
+                    {
+                      type: "taskLink",
+                      attrs: {
+                        taskId: "child-1",
+                        title: "旧标题",
+                        isCompleted: false
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    const synced = syncChildStateInBlocks(
+      blocks,
+      {
+        id: "child-1",
+        title: "新标题",
+        isCompleted: true
+      },
+      "旧标题"
+    );
+
+    expect(synced.changed).toBe(true);
+    const next = synced.blocks as any;
+    const taskItem = next.content[0].content[0];
+    const paragraphContent = taskItem.content[0].content;
+    expect(taskItem.attrs.checked).toBe(true);
+    expect(paragraphContent[0].type).toBe("taskLink");
+    expect(paragraphContent[0].attrs.taskId).toBe("child-1");
+    expect(paragraphContent[0].attrs.title).toBe("新标题");
+    expect(paragraphContent[0].attrs.isCompleted).toBe(true);
+  });
 });

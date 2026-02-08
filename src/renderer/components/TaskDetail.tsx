@@ -194,7 +194,7 @@ export default function TaskDetail({
     const next = (task.blocks as any) ?? DEFAULT_BLOCKS;
     const current = editor.getJSON();
     const taskIdChanged = prevTaskIdRef.current !== task.id;
-    if (taskIdChanged || (JSON.stringify(current) !== JSON.stringify(next) && !editor.isFocused)) {
+    if (taskIdChanged || JSON.stringify(current) !== JSON.stringify(next)) {
       editor.commands.setContent(next, false);
     }
     prevTaskIdRef.current = task.id;

@@ -139,6 +139,28 @@ function replaceTaskItemLabel(node: JsonRecord, nextTitle: string): { node: Json
   };
 }
 
+function taskItemContainsTaskLink(node: JsonRecord, taskId: string): boolean {
+  if (nodeType(node) !== "taskItem" || !taskId) {
+    return false;
+  }
+  const visit = (value: JsonValue): boolean => {
+    if (Array.isArray(value)) {
+      return value.some((item) => visit(item));
+    }
+    if (!isRecord(value)) {
+      return false;
+    }
+    if (nodeType(value) === "taskLink" && isRecord(value.attrs)) {
+      return value.attrs.taskId === taskId;
+    }
+    if (Array.isArray(value.content)) {
+      return value.content.some((item) => visit(item));
+    }
+    return false;
+  };
+  return visit(node.content ?? []);
+}
+
 function collectTaskLinkStates(blocks: JsonValue): Map<string, TaskLinkState> {
   const map = new Map<string, TaskLinkState>();
   const visit = (value: JsonValue) => {
@@ -380,8 +402,9 @@ export function syncChildStateInBlocks(
 
     if (nodeType(current) === "taskItem") {
       let nextNode = current;
+      const hasLinkedTask = taskItemContainsTaskLink(nextNode, child.id);
 
-      if (normalizedPreviousTitle && normalizedPreviousTitle !== normalizedCurrentTitle) {
+      if (!hasLinkedTask && normalizedPreviousTitle && normalizedPreviousTitle !== normalizedCurrentTitle) {
         const currentLabel = readTaskItemLabel(nextNode);
         if (currentLabel && normalizeTitle(currentLabel) === normalizedPreviousTitle) {
           const renamed = replaceTaskItemLabel(nextNode, child.title);
@@ -392,8 +415,8 @@ export function syncChildStateInBlocks(
         }
       }
 
-      const updatedLabel = readTaskItemLabel(nextNode);
-      if (updatedLabel && normalizeTitle(updatedLabel) === normalizedCurrentTitle) {
+      const shouldSyncChecked = hasLinkedTask || normalizeTitle(readTaskItemLabel(nextNode)) === normalizedCurrentTitle;
+      if (shouldSyncChecked) {
         const attrs = isRecord(nextNode.attrs) ? cloneRecord(nextNode.attrs) : {};
         const checked = attrs.checked === true;
         if (checked !== child.isCompleted) {

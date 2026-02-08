@@ -186,7 +186,7 @@ export default function StickyView({
     const next = (task.blocks as any) ?? { type: "doc", content: [{ type: "paragraph" }] };
     const current = editor.getJSON();
     const taskIdChanged = prevTaskIdRef.current !== task.id;
-    if (taskIdChanged || (JSON.stringify(current) !== JSON.stringify(next) && !editor.isFocused)) {
+    if (taskIdChanged || JSON.stringify(current) !== JSON.stringify(next)) {
       editor.commands.setContent(next, false);
     }
     prevTaskIdRef.current = task.id;

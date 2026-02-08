@@ -44,3 +44,35 @@
 - **关联假设**：
   - `[2026-02-08/M0.12] 任务标题唯一性按“全库未删除任务”校验`
   - `[2026-02-08/M0.12] 关联 markdown checkbox 采用“标题完全匹配 + 独占匹配”`
+
+## [2026-02-08] M0.12-R1 完成态实时同步修复（latest-write-wins）
+- **What（做了什么）**：
+  - 修复 `task checkbox` 与主窗口任务树在快速切换时的状态回退/延迟问题。
+  - 在 `App` 中为 `loadTask` 与 `refreshLibrary` 增加请求序号保护，避免旧请求晚到覆盖新状态。
+  - 在 `TaskDetail` 与 `StickyView` 移除“编辑器聚焦时禁止回写 blocks”的限制，确保跨窗口完成态变更立即渲染。
+- **Why（为什么这么做）**：
+  - 现网存在并发刷新与异步回包竞态，导致“最新一次用户勾选”偶发被旧数据覆盖，造成体感不同步。
+- **How（怎么实现的）**：
+  - `src/renderer/App.tsx`：新增 `loadTaskRequestIdRef`、`refreshLibraryRequestIdRef`，仅允许最新请求落库到 Zustand。
+  - `src/renderer/components/TaskDetail.tsx`：统一按 `blocks` 差异回写编辑器内容，不再受 `editor.isFocused` 阻断。
+  - `src/renderer/components/StickyView.tsx`：与 `TaskDetail` 采用一致策略，保证 sticky 与主窗口行为一致。
+- **已知限制**：
+  - 高频远端同步时，编辑器仍可能发生位置轻微跳动（由 `setContent` 触发），后续可评估做最小差异 patch 以优化体验。
+- **关联假设**：
+  - 无新增假设。
+
+## [2026-02-08] M0.12-R2 重命名后 taskLink 样式保留修复
+- **What（做了什么）**：
+  - 修复“任务树重命名后，父任务中的子任务链接块退化为纯文本”的问题。
+  - 调整 `syncChildStateInBlocks`：当 `taskItem` 内存在目标子任务的 `taskLink` 时，不再执行纯文本替换，只同步 `taskLink` 属性与 `checked` 状态。
+  - 新增回归测试，覆盖 `taskItem` 内嵌 `taskLink` 的重命名场景。
+- **Why（为什么这么做）**：
+  - 原逻辑按标题匹配直接重写 `taskItem` 段落文本，会意外抹掉已有 `taskLink` 节点结构，导致 UI 样式丢失与交互退化。
+- **How（怎么实现的）**：
+  - `src/shared/taskBlocksSync.ts`：新增 `taskItemContainsTaskLink` 检测，区分“文本映射”与“链接映射”路径。
+  - `src/shared/taskBlocksSync.ts`：在 `taskItem` 分支中改为“存在链接时仅同步 checked，不做文本替换”。
+  - `src/renderer/utils/__tests__/taskBlocksSync.test.ts`：新增“重命名时保留 taskItem 内 taskLink 节点样式”测试。
+- **已知限制**：
+  - 复杂混合文本（`taskLink + 自由文本`）仍按当前简化规则同步，后续可按需要增加更细粒度编辑策略。
+- **关联假设**：
+  - 无新增假设。
