@@ -57,8 +57,30 @@
   .task-link-checkbox {
     width: 14px;
     height: 14px;
-    accent-color: rgba(111, 182, 255, 0.9);
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1.5px solid currentColor;
+    border-radius: 3px;
+    background: transparent;
+    cursor: pointer;
+    position: relative;
+    opacity: 0.6;
     pointer-events: auto;
+  }
+
+  .task-link-checkbox:checked {
+    opacity: 1;
+  }
+
+  .task-link-checkbox:checked::after {
+    content: "✓";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 10px;
+    line-height: 1;
+    color: currentColor;
   }
 
   .task-link-title {
@@ -89,7 +111,11 @@
   }
 
   .sticky-surface .task-link-checkbox {
-    accent-color: rgba(40, 40, 40, 0.85);
+    border-color: #2b2b2b;
+  }
+
+  .sticky-surface .task-link-checkbox:checked::after {
+    color: #2b2b2b;
   }
 
   .editor-surface {

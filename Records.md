@@ -76,3 +76,18 @@
   - 复杂混合文本（`taskLink + 自由文本`）仍按当前简化规则同步，后续可按需要增加更细粒度编辑策略。
 - **关联假设**：
   - 无新增假设。
+
+## [2026-02-08] M0.12-R3 taskLink checkbox 视觉对齐系统默认样式
+- **What（做了什么）**：
+  - 调整 `taskLink` 内 checkbox 样式，去掉自绘外观（黑底 + 白勾），恢复为系统默认 checkbox 视觉。
+  - 保持 `Library` 与 `Sticky` 两个场景下的 checkbox 外观一致。
+- **Why（为什么这么做）**：
+  - 当前自绘 checkbox 与普通任务 checkbox 风格不一致，影响视觉统一性与可读性。
+- **How（怎么实现的）**：
+  - `src/renderer/styles/app.css`：在 `.task-link-checkbox` 中改为 `appearance: auto`、`-webkit-appearance: checkbox`、`accent-color: auto`。
+  - `src/renderer/styles/app.css`：将 `.sticky-surface .task-link-checkbox` 的强制强调色改为 `auto`，避免便签场景出现深色定制勾选样式。
+  - 运行 `npm run test` 完成回归验证（10/10 通过）。
+- **已知限制**：
+  - 不同操作系统对默认 checkbox 的细节渲染存在差异（尺寸/边角/勾形），但风格会与系统原生控件保持一致。
+- **关联假设**：
+  - 无新增假设。

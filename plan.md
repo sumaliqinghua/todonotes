@@ -1,6 +1,6 @@
 # 项目计划（里程碑驱动）
 
-更新时间：2026-02-08（M0.12）
+更新时间：2026-02-08（M0.12-R3）
 
 ## 里程碑总览
 
@@ -15,6 +15,7 @@
 - [x] M0.12：子任务交互增强（`Docs/NEW_FEATURES.md` #1.1~1.3）
 - [x] M0.12-R1：子任务完成态实时同步修复（latest-write-wins）
 - [x] M0.12-R2：重命名后 taskLink 样式保留修复
+- [x] M0.12-R3：taskLink checkbox 视觉对齐系统默认样式
 - [ ] M1：提醒功能前端闭环（创建/删除/列表）
 - [ ] M2：附件功能前端闭环（上传/展示/定位）
 - [ ] M3：Markdown 粘贴解析能力补齐
@@ -240,6 +241,23 @@
 
 - [x] 执行内容：同步文档记录并完成回归验证
   - 验收标准：`tsc` 与 `npm run test` 通过，`PRD.md`/`Records.md`/`PROJECT_STATUS.md` 已更新
+
+状态：`[x] 已完成`
+
+---
+
+## M0.12-R3：taskLink checkbox 视觉对齐系统默认样式
+
+### 任务清单
+
+- [x] 执行内容：移除 taskLink checkbox 的自绘样式，改为系统默认 checkbox 外观
+  - 验收标准：checkbox 不再出现黑色背景与白色勾选符号，视觉与普通 checkbox 一致
+
+- [x] 执行内容：保持 `Library` 与 `Sticky` 双场景样式一致
+  - 验收标准：两个界面中的 taskLink checkbox 外观一致，且勾选交互正常
+
+- [x] 执行内容：完成回归验证并同步文档记录
+  - 验收标准：`npm run test` 通过，`plan.md` / `Records.md` / `PROJECT_STATUS.md` 已更新
 
 状态：`[x] 已完成`
 
