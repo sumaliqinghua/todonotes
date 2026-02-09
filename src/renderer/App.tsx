@@ -8,7 +8,7 @@ import TaskDetail from "./components/TaskDetail";
 import TitleBar from "./components/TitleBar";
 import PromptModal from "./components/PromptModal";
 import { useAppStore, type LibraryTab } from "./store/useAppStore";
-import { appendTaskLinkToBlocksEnd, removeTaskLinksByTaskId } from "../shared/taskBlocksSync";
+import { appendTaskLinkToBlocksEnd, hasTaskLinkByTaskId, removeTaskLinksByTaskId } from "../shared/taskBlocksSync";
 
 interface Props {
   windowId: string;
@@ -166,7 +166,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       includeArchived: false,
       includeDeleted: false
     });
-    return children;
+    return children.filter((child) => !hasTaskLinkByTaskId(currentTask.blocks, child.id));
   };
 
   const selectTaskFromCandidates = async (
@@ -797,8 +797,8 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           }}
           showAdvancedControls={false}
         />
-        <div className="flex flex-1 flex-col gap-5 p-5 lg:flex-row">
-          <div className="w-full shrink-0 lg:w-[340px]">
+        <div className="flex min-h-0 flex-1 flex-col gap-5 p-5 lg:flex-row">
+          <div className="w-full shrink-0 min-h-0 lg:w-[340px]">
             <LibraryPanel
               nodes={libraryNodes}
               onOpenTask={(taskId) => handleNavigate(taskId, true)}
@@ -833,7 +833,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
               onTabChange={(tab) => setLibraryTab(tab)}
             />
           </div>
-        <div className="flex-1">
+          <div className="flex-1 min-h-0">
           <TaskDetail
             task={currentTask}
             ancestors={ancestors}

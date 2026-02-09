@@ -9,7 +9,7 @@ import type { Task, WindowBookmark } from "../../shared/types";
 import { TaskLinkNode } from "./TaskLinkNode";
 import Breadcrumb from "./Breadcrumb";
 import HistoryNav from "./HistoryNav";
-import TaskPickerDropdown from "./TaskPickerDropdown";
+import type { ContextMenuState } from "./ContextMenu";
 import { createImageHandlers } from "../utils/editorImages";
 import { handleCopy } from "../utils/editorMarkdown";
 import { CollapsibleListItem } from "../utils/listCollapse";
@@ -34,7 +34,7 @@ interface Props {
   onToggleLinkedTaskComplete: (taskId: string, nextCompleted: boolean) => Promise<void>;
   onRenameTaskTitle: (taskId: string, title: string) => Promise<void>;
   onRequestTitle: (options: { title: string; placeholder?: string; defaultValue?: string }) => Promise<string | null>;
-  onShowMenu: (menu: { x: number; y: number; items: { label: string; action: () => void }[] } | null) => void;
+  onShowMenu: (menu: ContextMenuState | null) => void;
   onHistoryBack: () => void;
   onHistoryForward: () => void;
   canHistoryBack: boolean;
@@ -535,7 +535,7 @@ export default function StickyView({
     setBookmarkTip({ text: title, x: rect.left + rect.width / 2, y: rect.top - 8 });
   };
 
-  const handleContextMenu = (event: React.MouseEvent) => {
+  const handleContextMenu = async (event: React.MouseEvent) => {
     event.preventDefault();
     if (!editor || !task) {
       return;
@@ -593,6 +593,23 @@ export default function StickyView({
     const { from, to, $from, $to } = state.selection;
     const rawText = state.doc.textBetween(from, to, "\n").trim();
     const canConvert = $from.sameParent($to) && !rawText.includes("\n");
+    const insertableChildren = await onLoadInsertableChildren();
+    const insertChildMenuItem =
+      insertableChildren.length > 0
+        ? {
+            label: "插入子任务",
+            children: insertableChildren.map((child) => ({
+              label: child.title,
+              action: () => {
+                void onInsertExistingChildLink(child.id);
+              }
+            }))
+          }
+        : {
+            label: "插入子任务",
+            children: [{ label: "暂无可选子任务", disabled: true }]
+          };
+
     onShowMenu({
       x: event.clientX,
       y: event.clientY,
@@ -601,18 +618,7 @@ export default function StickyView({
           label: "添加当前页到书签",
           action: addCurrentTaskBookmark
         },
-        {
-          label: "插入已有子任务链接",
-          action: () => {
-            void onLoadInsertableChildren().then(async (children) => {
-              if (children.length === 0) {
-                alert("当前任务下暂无可选子任务");
-                return;
-              }
-              await onInsertExistingChildLink(children[0].id);
-            });
-          }
-        },
+        insertChildMenuItem,
         {
           label: "添加子任务",
           action: () => {
@@ -694,13 +700,6 @@ export default function StickyView({
             </div>
           )}
           <div className="no-drag sticky-controls flex items-center gap-2 text-xs">
-            <TaskPickerDropdown
-              variant="light"
-              loadTasks={onLoadInsertableChildren}
-              onSelectTask={async (selected) => {
-                await onInsertExistingChildLink(selected.id);
-              }}
-            />
             <button
               type="button"
               className="pomodoro-button no-drag"

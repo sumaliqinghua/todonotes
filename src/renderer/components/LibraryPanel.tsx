@@ -182,7 +182,7 @@ export default function LibraryPanel({
     { id: "archived" as const, label: "归档" }
   ];
   return (
-    <div className="panel-card panel-enter flex h-full flex-col gap-4 p-4">
+    <div className="panel-card panel-enter flex h-full min-h-0 flex-col gap-4 p-4">
       <div className="panel-header">
         <div className="flex items-center gap-2">
           <span className="accent-chip">Library</span>
@@ -220,7 +220,7 @@ export default function LibraryPanel({
           </button>
         ))}
       </div>
-      <div className="flex-1 overflow-auto pr-1">
+      <div className="task-tree-scrollbar flex-1 overflow-y-auto overflow-x-hidden pr-1">
         <div
           className="flex flex-col gap-2"
           onDragOver={(event) => {

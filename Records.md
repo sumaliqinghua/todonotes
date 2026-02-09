@@ -171,3 +171,68 @@
   - 若未来希望在下拉中显示“已归档”分组入口，需要在当前过滤基础上增加显式分组 UI。
 - **关联假设**：
   - 无新增假设。
+
+## [2026-02-09] M0.13-R3 便签插入已有子任务改右键 + 未引用过滤
+- **What（做了什么）**：
+  - 移除 sticky 顶部“插入已有子任务”下拉按钮。
+  - 将 sticky 编辑区右键菜单中的“插入已有子任务链接”改为动态候选列表（`插入子任务：标题`）。
+  - 插入候选改为仅展示“当前任务下尚未被正文 `taskLink` 引用”的子任务。
+- **Why（为什么这么做）**：
+  - 用户希望减少顶部控件占用，并将插入行为统一到右键上下文菜单。
+  - 仅展示未引用子任务可以避免重复插入无效项，降低误操作成本。
+- **How（怎么实现的）**：
+  - `src/renderer/components/StickyView.tsx`：删除 `TaskPickerDropdown` 引用与渲染；将 `handleContextMenu` 改为异步加载候选，在非链接块场景注入多条“插入子任务：xxx”菜单项。
+  - `src/renderer/App.tsx`：`loadInsertableChildren` 引入 `hasTaskLinkByTaskId` 过滤逻辑，仅返回未被当前正文引用的子任务。
+  - 回归验证：执行 `npm run test` 与 `npx tsc -p tsconfig.main.json && npx tsc -p tsconfig.preload.json && npx tsc -p tsconfig.renderer.json`，全部通过。
+- **已知限制**：
+  - 右键菜单目前为扁平列表，候选较多时菜单会变长；后续可按需要升级为可搜索或分组菜单。
+- **关联假设**：
+  - `[2026-02-09/M0.13-R3] 便签右键插入入口采用“扁平列表”而非二级子菜单`
+
+## [2026-02-09] M0.13-R4 任务树超长列表滚动修复
+- **What（做了什么）**：
+  - 修复任务树列表超出可视区域后无法完整查看的问题。
+  - 为任务树容器新增专用滚动条样式，支持纵向滚动浏览。
+  - 补齐主布局与 `LibraryPanel` 的 `min-h-0` 约束，保证滚动容器在 flex 布局下正确收缩。
+- **Why（为什么这么做）**：
+  - 用户反馈任务树节点较多时下方内容被裁切，影响基本浏览与操作。
+- **How（怎么实现的）**：
+  - `src/renderer/components/LibraryPanel.tsx`：外层面板增加 `min-h-0`，任务树容器改为 `task-tree-scrollbar flex-1 overflow-y-auto overflow-x-hidden`。
+  - `src/renderer/App.tsx`：主布局容器与左右栏补充 `min-h-0`，消除 flex 默认最小高度导致的滚动失效。
+  - `src/renderer/styles/app.css`：新增 `.task-tree-scrollbar` 及 WebKit 滚动条样式（细滚动条 + hover 增强）。
+  - 回归验证：执行 `npm run test` 与 `npx tsc -p tsconfig.main.json && npx tsc -p tsconfig.preload.json && npx tsc -p tsconfig.renderer.json`，全部通过。
+- **已知限制**：
+  - 当前仅处理纵向滚动；长标题仍按 `truncate` 截断，不提供横向滚动。
+- **关联假设**：
+  - `[2026-02-09/M0.13-R4] 任务树滚动仅处理纵向溢出`
+
+## [2026-02-09] M0.13-R5 右键插入子任务二级菜单 + 菜单防截断
+- **What（做了什么）**：
+  - 将 sticky 右键插入入口从“平铺多个 `插入子任务：xxx`”改为“插入子任务”二级展开列表。
+  - 右键菜单支持内部滚动，长列表场景不再被便签窗口底部截断。
+  - `ContextMenu` 升级支持 `children` 与 `disabled` 菜单项能力。
+- **Why（为什么这么做）**：
+  - 用户明确希望交互先聚合再展开，避免首层菜单过长影响可读性。
+  - 需要在不调整菜单定位策略前提下，保证超长菜单可完整访问。
+- **How（怎么实现的）**：
+  - `src/renderer/components/ContextMenu.tsx`：新增 `children/disabled` 类型，支持折叠展开渲染、菜单最大高度与内部滚动。
+  - `src/renderer/components/StickyView.tsx`：将“插入子任务”改为父菜单项，子任务作为 `children` 展开；空列表时展示禁用项“暂无可选子任务”。
+  - `src/renderer/styles/app.css`：增强 `.context-menu` 滚动条样式与子菜单缩进样式。
+  - 回归验证：执行 `npm run test` 与 `npx tsc -p tsconfig.main.json && npx tsc -p tsconfig.preload.json && npx tsc -p tsconfig.renderer.json`，全部通过。
+- **已知限制**：
+  - 当前为“单菜单折叠展开”而非悬浮级联子菜单；若后续需要级联跟随鼠标，可继续扩展定位逻辑。
+- **关联假设**：
+  - `[2026-02-09/M0.13-R5] 右键子任务列表采用“单菜单内折叠展开”`
+
+## [2026-02-09] M0.13-R5-hotfix 右键菜单黑屏修复（Hook 顺序）
+- **What（做了什么）**：
+  - 修复 `ContextMenu` 在菜单打开/关闭切换时触发的 Hook 顺序变化问题，消除右键后黑屏。
+- **Why（为什么这么做）**：
+  - 用户反馈出现 React 报错：`Rendered more hooks than during the previous render`，导致渲染崩溃。
+- **How（怎么实现的）**：
+  - `src/renderer/components/ContextMenu.tsx`：移除 `useMemo` 并改为常量计算 `maxHeight`，确保所有 Hook 在每次渲染中调用顺序一致。
+  - 回归验证：执行 `npm run test` 与 `npx tsc -p tsconfig.main.json && npx tsc -p tsconfig.preload.json && npx tsc -p tsconfig.renderer.json`，全部通过。
+- **已知限制**：
+  - 右键菜单高度仍按“点击点到窗口底部”的可用高度计算，如需支持上下双向自适应可后续扩展。
+- **关联假设**：
+  - 无新增假设。
