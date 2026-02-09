@@ -25,7 +25,10 @@ import {
   updateWindowState,
   loadWindowStates,
   replaceStickyBookmarkTitle,
-  toggleSkinPanel
+  toggleSkinPanel,
+  showContextMenuPanel,
+  hideContextMenuPanel,
+  selectContextMenuItem
 } from "../windowManager";
 import {
   appendTaskLinkToBlocksEnd,
@@ -380,6 +383,18 @@ export function registerIpcHandlers() {
 
   ipcMain.handle("window:toggleSkinPanel", (_event, input: Parameters<IpcInvokeMap["window:toggleSkinPanel"]>[0]) => {
     return toggleSkinPanel(input.windowId, input.open);
+  });
+
+  ipcMain.handle("window:showContextMenu", (_event, input: Parameters<IpcInvokeMap["window:showContextMenu"]>[0]) => {
+    return showContextMenuPanel(input.windowId, input.x, input.y, input.items);
+  });
+
+  ipcMain.handle("window:hideContextMenu", (_event, input: Parameters<IpcInvokeMap["window:hideContextMenu"]>[0]) => {
+    return hideContextMenuPanel(input.windowId);
+  });
+
+  ipcMain.handle("window:contextMenuSelect", (_event, input: Parameters<IpcInvokeMap["window:contextMenuSelect"]>[0]) => {
+    return selectContextMenuItem(input.windowId, input.itemId);
   });
 
   ipcMain.handle("reminder:create", (_event, input: Parameters<IpcInvokeMap["reminder:create"]>[0]) => {

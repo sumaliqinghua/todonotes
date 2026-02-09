@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { Task, WindowBookmark } from "../shared/types";
-import ContextMenu, { ContextMenuState } from "./components/ContextMenu";
+import type { PopupMenuItem, Task, WindowBookmark } from "../shared/types";
+import ContextMenu, { ContextMenuItem, ContextMenuState } from "./components/ContextMenu";
 import LibraryPanel, { TaskTreeNode } from "./components/LibraryPanel";
 import ReminderModal from "./components/ReminderModal";
 import StickyView from "./components/StickyView";
@@ -72,6 +72,33 @@ const filterTaskTreeByTab = (nodes: TaskTreeNode[], tab: LibraryTab): TaskTreeNo
   });
 };
 
+function serializeContextMenuItems(items: ContextMenuItem[], parentPath = "menu") {
+  const actionMap = new Map<string, () => void>();
+
+  const visit = (list: ContextMenuItem[], path: string): PopupMenuItem[] => {
+    return list.map((item, index) => {
+      const id = `${path}-${index}`;
+      const hasChildren = Array.isArray(item.children) && item.children.length > 0;
+      const next: PopupMenuItem = {
+        id,
+        label: item.label,
+        disabled: item.disabled
+      };
+      if (hasChildren) {
+        next.children = visit(item.children ?? [], id);
+      } else if (!item.disabled && typeof item.action === "function") {
+        actionMap.set(id, item.action);
+      }
+      return next;
+    });
+  };
+
+  return {
+    items: visit(items, parentPath),
+    actionMap
+  };
+}
+
 export default function App({ windowId, rootTaskId, windowType }: Props) {
   const api = window.api;
   const {
@@ -107,6 +134,8 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
   } | null>(null);
   const [history, setHistory] = useState<{ stack: string[]; index: number }>({ stack: [], index: -1 });
   const [stickyBookmarks, setStickyBookmarks] = useState<WindowBookmark[]>([]);
+  const contextMenuActionsRef = useRef<Map<string, () => void>>(new Map());
+  const isContextMenuPanelOpenRef = useRef(false);
   const historyRef = useRef(history);
   const searchTimer = useRef<number | null>(null);
   const currentTaskIdRef = useRef<string | null>(null);
@@ -288,6 +317,34 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     if (currentTaskIdRef.current) {
       await loadTask(currentTaskIdRef.current);
     }
+  };
+
+  const showMenu = (nextMenu: ContextMenuState | null) => {
+    if (!nextMenu) {
+      contextMenuActionsRef.current = new Map();
+      if (isContextMenuPanelOpenRef.current) {
+        isContextMenuPanelOpenRef.current = false;
+        void api.invoke("window:hideContextMenu", { windowId });
+      }
+      setMenu(null);
+      return;
+    }
+
+    if (windowType === "sticky") {
+      const serialized = serializeContextMenuItems(nextMenu.items);
+      contextMenuActionsRef.current = serialized.actionMap;
+      isContextMenuPanelOpenRef.current = true;
+      void api.invoke("window:showContextMenu", {
+        windowId,
+        x: nextMenu.x,
+        y: nextMenu.y,
+        items: serialized.items
+      });
+      setMenu(null);
+      return;
+    }
+
+    setMenu(nextMenu);
   };
 
   const toggleLinkedTaskComplete = async (taskId: string, nextCompleted: boolean) => {
@@ -693,12 +750,34 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       }
     });
 
+    const offContextMenuSelected = api.on("window:context-menu-selected", (payload) => {
+      if (payload.windowId !== windowId) {
+        return;
+      }
+      const action = contextMenuActionsRef.current.get(payload.itemId);
+      if (action) {
+        action();
+      }
+      contextMenuActionsRef.current = new Map();
+      isContextMenuPanelOpenRef.current = false;
+    });
+
+    const offContextMenuClosed = api.on("window:context-menu-closed", (payload) => {
+      if (payload.windowId !== windowId) {
+        return;
+      }
+      contextMenuActionsRef.current = new Map();
+      isContextMenuPanelOpenRef.current = false;
+    });
+
     return () => {
       offUpdated();
       offDeleted();
       offReminder();
       offSettings();
       offStickyShared();
+      offContextMenuSelected();
+      offContextMenuClosed();
     };
   }, []);
 
@@ -736,7 +815,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
 
   if (windowType === "sticky") {
     return (
-      <div className="h-screen overflow-hidden" onClick={() => setMenu(null)}>
+      <div className="h-screen overflow-hidden" onClick={() => showMenu(null)}>
         <StickyView
           windowId={windowId}
           task={currentTask}
@@ -754,7 +833,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           onToggleLinkedTaskComplete={toggleLinkedTaskComplete}
           onRenameTaskTitle={renameTask}
           onRequestTitle={requestTitle}
-          onShowMenu={setMenu}
+          onShowMenu={showMenu}
           isPinned={alwaysOnTop}
           onTogglePin={() => {
             const next = !alwaysOnTop;
@@ -770,7 +849,6 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             api.invoke("window:updateState", { windowId, stickyBookmarks: nextBookmarks });
           }}
         />
-        <ContextMenu menu={menu} onClose={() => setMenu(null)} />
       </div>
     );
   }
@@ -778,7 +856,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
   const libraryNodes = searchQuery.trim() ? libraryTasks.map((task) => ({ task, children: [] })) : taskTree;
 
   return (
-    <div className="app-shell h-screen" onClick={() => setMenu(null)}>
+    <div className="app-shell h-screen" onClick={() => showMenu(null)}>
       <div className="app-layer flex h-full flex-col">
         <TitleBar
           windowId={windowId}
@@ -851,12 +929,12 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             onToggleLinkedTaskComplete={toggleLinkedTaskComplete}
             onRenameTaskTitle={renameTask}
             onRequestTitle={requestTitle}
-            onShowMenu={setMenu}
+            onShowMenu={showMenu}
             />
           </div>
         </div>
       </div>
-      <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+      <ContextMenu menu={menu} onClose={() => showMenu(null)} />
       <PromptModal
         open={Boolean(promptState)}
         title={promptState?.title ?? ""}

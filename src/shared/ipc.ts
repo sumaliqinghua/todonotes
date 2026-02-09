@@ -7,6 +7,7 @@ import type {
   Task,
   TaskCreateInput,
   TaskUpdateInput,
+  PopupMenuItem,
   WindowBookmark,
   WindowState
 } from "./types";
@@ -40,6 +41,9 @@ export interface IpcInvokeMap {
   "window:minimize": (input: { windowId: string }) => void;
   "window:close": (input: { windowId: string }) => void;
   "window:toggleSkinPanel": (input: { windowId: string; open?: boolean }) => { open: boolean };
+  "window:showContextMenu": (input: { windowId: string; x: number; y: number; items: PopupMenuItem[] }) => { open: boolean };
+  "window:hideContextMenu": (input: { windowId: string }) => { open: boolean };
+  "window:contextMenuSelect": (input: { windowId: string; itemId: string }) => void;
 
   "reminder:create": (input: ReminderCreateInput) => Reminder;
   "reminder:delete": (input: { id: string }) => void;
@@ -69,5 +73,12 @@ export interface IpcEventMap {
     stickyOpacity?: number;
     opacity?: number;
     alwaysOnTop?: boolean;
+  };
+  "window:context-menu-selected": {
+    windowId: string;
+    itemId: string;
+  };
+  "window:context-menu-closed": {
+    windowId: string;
   };
 }

@@ -41,6 +41,13 @@ export interface WindowBookmark {
   title: string;
 }
 
+export interface PopupMenuItem {
+  id: string;
+  label: string;
+  disabled?: boolean;
+  children?: PopupMenuItem[];
+}
+
 export interface Reminder {
   id: string;
   taskId: string;

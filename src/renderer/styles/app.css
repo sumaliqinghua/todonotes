@@ -682,3 +682,21 @@ body.skin-panel-body,
 html.skin-panel-root {
   background: transparent;
 }
+
+body.context-menu-body,
+html.context-menu-root {
+  background: transparent;
+  overflow: hidden;
+}
+
+.context-menu-panel-wrap {
+  height: 100vh;
+  width: 100vw;
+  background: transparent;
+}
+
+.context-menu-panel {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+}

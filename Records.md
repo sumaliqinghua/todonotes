@@ -236,3 +236,24 @@
   - 右键菜单高度仍按“点击点到窗口底部”的可用高度计算，如需支持上下双向自适应可后续扩展。
 - **关联假设**：
   - 无新增假设。
+
+## [2026-02-09] M0.13-R6 右键菜单独立弹窗化（防窗口裁切）
+- **What（做了什么）**：
+  - 将 sticky 右键菜单从宿主窗口内浮层改为独立 popup 窗口渲染。
+  - 新增菜单弹窗窗口渲染组件，支持二级菜单展开、禁用项、内部滚动与 `Esc` 关闭。
+  - 新增主窗口与菜单弹窗之间的菜单数据传递与点击回传协议。
+- **Why（为什么这么做）**：
+  - 用户反馈右下角右键时菜单仍被便签窗口裁切，宿主内浮层无法彻底规避边界限制。
+  - 参考皮肤设置弹窗模式，独立窗口是最稳定的“永不被宿主裁切”方案。
+- **How（怎么实现的）**：
+  - `src/main/windowManager.ts`：新增 `contextMenuPanels` 管理、`showContextMenuPanel` / `hideContextMenuPanel` / `selectContextMenuItem` 与菜单窗口定位逻辑。
+  - `src/main/ipc/handlers.ts`：新增 `window:showContextMenu` / `window:hideContextMenu` / `window:contextMenuSelect` IPC handler。
+  - `src/shared/ipc.ts` / `src/shared/types.ts`：新增 `PopupMenuItem` 与对应 invoke/event 契约。
+  - `src/renderer/App.tsx`：新增菜单序列化与动作映射，sticky 场景改为调用独立菜单窗口；通过事件回传执行真实 action。
+  - `src/renderer/ContextMenuPanelWindow.tsx`：新增独立菜单窗口组件。
+  - `src/renderer/main.tsx` / `src/renderer/styles/app.css`：新增 `contextMenu` 窗口路由与透明背景样式。
+  - 验证：`npm run test` + 三端 `tsc` 全通过。
+- **已知限制**：
+  - 当前独立菜单窗口仅应用于 sticky；library 仍使用页面内菜单。
+- **关联假设**：
+  - `[2026-02-09/M0.13-R6] 独立右键菜单窗口先覆盖 sticky 场景`

@@ -2,7 +2,7 @@ import { app, BrowserWindow, screen } from "electron";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import type { IpcEventMap } from "../shared/ipc";
-import type { WindowState } from "../shared/types";
+import type { PopupMenuItem, WindowState } from "../shared/types";
 import {
   deleteWindowState,
   getStickyBookmarksByRootTaskId,
@@ -19,18 +19,20 @@ const DEFAULT_STICKY_OPACITY = 1;
 const STICKY_MINI_HEIGHT = 36;
 const SKIN_PANEL_SIZE = { width: 320, height: 180 };
 const SKIN_PANEL_OFFSET = 0;
+const CONTEXT_MENU_PANEL_SIZE = { width: 320, maxHeight: 520 };
 
 type SharedStickyPatch = Pick<Partial<WindowState>, "stickyBookmarks" | "stickyColor" | "stickyOpacity">;
 
 const windows = new Map<string, BrowserWindow>();
 const windowStates = new Map<string, WindowState>();
 const skinPanels = new Map<string, BrowserWindow>();
+const contextMenuPanels = new Map<string, BrowserWindow>();
 let isQuitting = false;
 
 function getRendererUrl(
   windowId: string,
   rootTaskId: string,
-  windowType: "library" | "sticky" | "skin",
+  windowType: "library" | "sticky" | "skin" | "contextMenu",
   extraParams: Record<string, string> = {}
 ) {
   const base = process.env.VITE_DEV_SERVER_URL || (app.isPackaged ? "" : "http://localhost:5173");
@@ -143,6 +145,40 @@ function getSkinPanelBounds(ownerBounds: Electron.Rectangle) {
   const x = Math.min(Math.max(area.x + 8, centeredX), areaRight - panelWidth - 8);
   const y = Math.min(Math.max(area.y + 8, ownerBounds.y - panelHeight - SKIN_PANEL_OFFSET), areaBottom - panelHeight - 8);
   return { x, y, width: panelWidth, height: panelHeight };
+}
+
+function estimatePopupMenuHeight(items: PopupMenuItem[]): number {
+  const countNodes = (nodes: PopupMenuItem[], depth = 0): number => {
+    return nodes.reduce((sum, node) => {
+      const selfCount = 1;
+      if (!node.children || node.children.length === 0) {
+        return sum + selfCount;
+      }
+      return sum + selfCount + countNodes(node.children, depth + 1);
+    }, 0);
+  };
+  const nodeCount = countNodes(items);
+  const estimated = nodeCount * 34 + 12;
+  return Math.min(CONTEXT_MENU_PANEL_SIZE.maxHeight, Math.max(88, estimated));
+}
+
+function getContextMenuPanelBounds(ownerBounds: Electron.Rectangle, clickX: number, clickY: number, items: PopupMenuItem[]) {
+  const display = screen.getDisplayMatching(ownerBounds);
+  const area = display.workArea;
+  const panelWidth = CONTEXT_MENU_PANEL_SIZE.width;
+  const panelHeight = estimatePopupMenuHeight(items);
+  const baseX = ownerBounds.x + clickX;
+  const baseY = ownerBounds.y + clickY;
+  const maxX = area.x + area.width - panelWidth - 8;
+  const maxY = area.y + area.height - panelHeight - 8;
+  const x = Math.min(Math.max(area.x + 8, baseX), maxX);
+  const y = Math.min(Math.max(area.y + 8, baseY), maxY);
+  return {
+    x,
+    y,
+    width: panelWidth,
+    height: panelHeight
+  };
 }
 
 function normalizeNavPathTaskIds(rootTaskId: string, navPathTaskIds?: string[]) {
@@ -338,6 +374,11 @@ export function createTaskWindow(
       panel.close();
     }
     skinPanels.delete(windowId);
+    const contextPanel = contextMenuPanels.get(windowId);
+    if (contextPanel && !contextPanel.isDestroyed()) {
+      contextPanel.close();
+    }
+    contextMenuPanels.delete(windowId);
     if (!isQuitting) {
       windowStates.delete(windowId);
       deleteWindowState(windowId);
@@ -436,6 +477,97 @@ export function toggleSkinPanel(ownerWindowId: string, open?: boolean) {
   });
 
   return { open: true };
+}
+
+export function showContextMenuPanel(ownerWindowId: string, clickX: number, clickY: number, items: PopupMenuItem[]) {
+  const owner = windows.get(ownerWindowId);
+  if (!owner) {
+    return { open: false };
+  }
+  const existing = contextMenuPanels.get(ownerWindowId);
+  if (existing && !existing.isDestroyed()) {
+    existing.close();
+    contextMenuPanels.delete(ownerWindowId);
+  }
+
+  const panelId = `context-menu-${ownerWindowId}`;
+  const bounds = getContextMenuPanelBounds(owner.getBounds(), clickX, clickY, items);
+  const panel = new BrowserWindow({
+    ...bounds,
+    frame: false,
+    resizable: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    parent: owner,
+    backgroundColor: "#00000000",
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/index.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  panel.setAlwaysOnTop(true, "pop-up-menu");
+  panel.loadURL(getRendererUrl(panelId, "", "contextMenu", {
+    ownerWindowId,
+    menuItems: JSON.stringify(items)
+  }));
+
+  contextMenuPanels.set(ownerWindowId, panel);
+
+  const handleOwnerClosed = () => {
+    if (!panel.isDestroyed()) {
+      panel.close();
+    }
+  };
+  const handleOwnerMoved = () => {
+    if (!panel.isDestroyed()) {
+      panel.close();
+    }
+  };
+  const handleOwnerResized = () => {
+    if (!panel.isDestroyed()) {
+      panel.close();
+    }
+  };
+  owner.on("move", handleOwnerMoved);
+  owner.on("resize", handleOwnerResized);
+  owner.on("closed", handleOwnerClosed);
+  panel.on("blur", () => {
+    if (!panel.isDestroyed()) {
+      panel.close();
+    }
+  });
+  panel.on("closed", () => {
+    owner.removeListener("move", handleOwnerMoved);
+    owner.removeListener("resize", handleOwnerResized);
+    owner.removeListener("closed", handleOwnerClosed);
+    contextMenuPanels.delete(ownerWindowId);
+    if (!owner.isDestroyed()) {
+      owner.webContents.send("window:context-menu-closed", { windowId: ownerWindowId });
+    }
+  });
+
+  return { open: true };
+}
+
+export function hideContextMenuPanel(ownerWindowId: string) {
+  const panel = contextMenuPanels.get(ownerWindowId);
+  if (panel && !panel.isDestroyed()) {
+    panel.close();
+  }
+  contextMenuPanels.delete(ownerWindowId);
+  return { open: false };
+}
+
+export function selectContextMenuItem(ownerWindowId: string, itemId: string) {
+  const owner = windows.get(ownerWindowId);
+  if (!owner || owner.isDestroyed()) {
+    hideContextMenuPanel(ownerWindowId);
+    return;
+  }
+  owner.webContents.send("window:context-menu-selected", { windowId: ownerWindowId, itemId });
+  hideContextMenuPanel(ownerWindowId);
 }
 
 export function updateWindowState(partial: Partial<WindowState> & { windowId: string }) {
