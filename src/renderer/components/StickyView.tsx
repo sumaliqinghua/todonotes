@@ -91,6 +91,8 @@ export default function StickyView({
   const pomodoroTimerRef = useRef<number | null>(null);
   const [pomodoroTip, setPomodoroTip] = useState<string | null>(null);
   const [bookmarkTip, setBookmarkTip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const bookmarkPathCacheRef = useRef<Record<string, string>>({});
+  const bookmarkHoverTaskIdRef = useRef<string | null>(null);
   const pomodoroTipTimerRef = useRef<number | null>(null);
   const pomodoroClickTimerRef = useRef<number | null>(null);
   const skipHeaderCommitRef = useRef(false);
@@ -214,6 +216,10 @@ export default function StickyView({
     }
     onBookmarksChange(bookmarks.map((bookmark) => (bookmark.taskId === task.id ? { ...bookmark, title: task.title } : bookmark)));
   }, [task?.id, task?.title, bookmarks, onBookmarksChange]);
+
+  useEffect(() => {
+    bookmarkPathCacheRef.current = {};
+  }, [bookmarks]);
 
   const commitHeaderTitle = async () => {
     if (!task) {
@@ -435,8 +441,11 @@ export default function StickyView({
     try {
       const { state } = editor;
       const { from, to, $from, $to } = state.selection;
-      const rawText = state.doc.textBetween(from, to, "\n").trim();
-      const isSingleLine = $from.sameParent($to) && !rawText.includes("\n");
+      const hasSelection = from !== to;
+      const rangeFrom = hasSelection ? from : $from.start();
+      const rangeTo = hasSelection ? to : $from.end();
+      const rawText = state.doc.textBetween(rangeFrom, rangeTo, "\n").trim();
+      const isSingleLine = hasSelection ? $from.sameParent($to) && !rawText.includes("\n") : !rawText.includes("\n");
       if (!isSingleLine) {
         alert("只能转换单行文本");
         return;
@@ -449,8 +458,8 @@ export default function StickyView({
       editor
         .chain()
         .focus()
-        .deleteRange({ from, to })
-        .insertContentAt(from, [
+        .deleteRange({ from: rangeFrom, to: rangeTo })
+        .insertContentAt(rangeFrom, [
           {
             type: "taskLink",
             attrs: { taskId: created.taskId, title: created.title, isCompleted: created.isCompleted }
@@ -530,9 +539,39 @@ export default function StickyView({
 
   const buildBookmarkLabel = (title: string) => `${(title || "未命名").slice(0, 2)}...`;
 
-  const showBookmarkTip = (event: React.MouseEvent<HTMLButtonElement>, title: string) => {
+  const buildBookmarkPathText = (ancestorsChain: Task[], currentTitle: string) => {
+    const fullPath = [...ancestorsChain.map((item) => item.title || "未命名"), currentTitle || "未命名"];
+    const trimmedPath = fullPath.length > 1 ? fullPath.slice(1) : fullPath;
+    return trimmedPath.join("/");
+  };
+
+  const showBookmarkTip = async (event: React.MouseEvent<HTMLButtonElement>, bookmark: WindowBookmark) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    setBookmarkTip({ text: title, x: rect.left + rect.width / 2, y: rect.top - 8 });
+    const x = rect.left + rect.width / 2;
+    const y = rect.top - 8;
+    bookmarkHoverTaskIdRef.current = bookmark.taskId;
+
+    const cached = bookmarkPathCacheRef.current[bookmark.taskId];
+    if (cached) {
+      setBookmarkTip({ text: cached, x, y });
+      return;
+    }
+
+    const fallback = bookmark.title || "未命名";
+    setBookmarkTip({ text: fallback, x, y });
+    try {
+      const [ancestorsChain, taskDetail] = await Promise.all([
+        window.api.invoke("task:getAncestors", { taskId: bookmark.taskId }),
+        window.api.invoke("task:get", { id: bookmark.taskId })
+      ]);
+      const pathText = buildBookmarkPathText(ancestorsChain, taskDetail?.title || fallback);
+      bookmarkPathCacheRef.current[bookmark.taskId] = pathText;
+      if (bookmarkHoverTaskIdRef.current === bookmark.taskId) {
+        setBookmarkTip({ text: pathText, x, y });
+      }
+    } catch {
+      bookmarkPathCacheRef.current[bookmark.taskId] = fallback;
+    }
   };
 
   const handleContextMenu = async (event: React.MouseEvent) => {
@@ -766,9 +805,15 @@ export default function StickyView({
                 <button
                   type="button"
                   className="sticky-bookmark-link"
-                  onMouseEnter={(event) => showBookmarkTip(event, bookmark.title)}
-                  onMouseLeave={() => setBookmarkTip(null)}
+                  onMouseEnter={(event) => {
+                    void showBookmarkTip(event, bookmark);
+                  }}
+                  onMouseLeave={() => {
+                    bookmarkHoverTaskIdRef.current = null;
+                    setBookmarkTip(null);
+                  }}
                   onClick={() => {
+                    bookmarkHoverTaskIdRef.current = null;
                     setBookmarkTip(null);
                     onNavigate(bookmark.taskId, false);
                   }}

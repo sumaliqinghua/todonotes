@@ -257,3 +257,36 @@
   - 当前独立菜单窗口仅应用于 sticky；library 仍使用页面内菜单。
 - **关联假设**：
   - `[2026-02-09/M0.13-R6] 独立右键菜单窗口先覆盖 sticky 场景`
+
+## [2026-02-09] M0.13-R7 `Ctrl/Cmd+Shift+T` 无选中按当前行转子任务
+- **What（做了什么）**：
+  - 调整“转换为子任务”逻辑：当未选中文本时，自动读取光标所在当前行全文并执行转换。
+  - 在 `Library` 详情页与 `Sticky` 两个编辑器视图保持一致行为。
+- **Why（为什么这么做）**：
+  - 用户期望 `Ctrl/Cmd+Shift+T` 在“仅光标态”下也能快速转子任务，避免先手动选中整行。
+- **How（怎么实现的）**：
+  - `src/renderer/components/TaskDetail.tsx`：在 `convertSelectionToChild` 中新增 `hasSelection` 分支；无选区时改用 `$from.start()` 与 `$from.end()` 作为替换范围。
+  - `src/renderer/components/StickyView.tsx`：同步相同逻辑，确保双窗口交互一致。
+  - 保留原单行约束：有选区时继续校验“同父节点且非多行”，跨行仍弹出“只能转换单行文本”。
+- **已知限制**：
+  - 当前“当前行”定义为光标所在父节点文本范围；复杂嵌套块中仍按该节点文本转换。
+- **关联假设**：
+  - 无新增假设。
+
+## [2026-02-09] M0.13-R8 hover 便签路径提示改造
+- **What（做了什么）**：
+  - 将 sticky 书签 hover 提示从“书签标题”改为“层级路径”，格式为 `xx/xxx`。
+  - 路径范围调整为“最父一级的下一级 → 当前页面”，不显示最顶层 root。
+- **Why（为什么这么做）**：
+  - 你希望 hover 时直接看到当前书签所处层级路径，便于快速定位上下文。
+- **How（怎么实现的）**：
+  - `src/renderer/components/StickyView.tsx`：
+    - 新增 `buildBookmarkPathText`，通过 `ancestors + current` 拼接路径并去掉 root 段。
+    - `showBookmarkTip` 改为异步：hover 时调用 `task:getAncestors` 与 `task:get` 获取链路与当前标题。
+    - 新增 `bookmarkPathCacheRef` 缓存，重复 hover 直接命中，降低 IPC 请求频率。
+    - 增加 hover 态跟踪 `bookmarkHoverTaskIdRef`，避免异步回包覆盖已离开项的 tooltip。
+    - 书签列表变化时清空缓存，确保重命名/替换后路径不脏读。
+- **已知限制**：
+  - 首次 hover 某书签时会先短暂显示标题，再异步替换为路径。
+- **关联假设**：
+  - 无新增假设。

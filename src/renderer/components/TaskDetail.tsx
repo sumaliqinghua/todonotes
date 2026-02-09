@@ -260,8 +260,11 @@ export default function TaskDetail({
     try {
       const { state } = editor;
       const { from, to, $from, $to } = state.selection;
-      const rawText = state.doc.textBetween(from, to, "\n").trim();
-      const isSingleLine = $from.sameParent($to) && !rawText.includes("\n");
+      const hasSelection = from !== to;
+      const rangeFrom = hasSelection ? from : $from.start();
+      const rangeTo = hasSelection ? to : $from.end();
+      const rawText = state.doc.textBetween(rangeFrom, rangeTo, "\n").trim();
+      const isSingleLine = hasSelection ? $from.sameParent($to) && !rawText.includes("\n") : !rawText.includes("\n");
       if (!isSingleLine) {
         alert("只能转换单行文本");
         return;
@@ -274,8 +277,8 @@ export default function TaskDetail({
       editor
         .chain()
         .focus()
-        .deleteRange({ from, to })
-        .insertContentAt(from, [
+        .deleteRange({ from: rangeFrom, to: rangeTo })
+        .insertContentAt(rangeFrom, [
           {
             type: "taskLink",
             attrs: { taskId: created.taskId, title: created.title, isCompleted: created.isCompleted }
