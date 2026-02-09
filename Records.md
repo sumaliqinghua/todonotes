@@ -290,3 +290,18 @@
   - 首次 hover 某书签时会先短暂显示标题，再异步替换为路径。
 - **关联假设**：
   - 无新增假设。
+
+## [2026-02-10] M0.13-R9 便签“待处理”按钮点击无响应修复
+- **What（做了什么）**：
+  - 修复 sticky 书签栏“待处理（n）”点击后无响应的问题，恢复待处理弹层的展开与收起。
+  - 优化“待处理（n）”按钮行为：支持再次点击收起弹层，保留点击空白处关闭弹层。
+- **Why（为什么这么做）**：
+  - 用户反馈点击“待处理（n）”没有任何反应，属于高频入口可用性问题，影响待处理条目快速回看与跳转。
+- **How（怎么实现的）**：
+  - `src/renderer/components/StickyView.tsx`：在“待处理（n）”按钮 `onClick` 中增加 `event.stopPropagation()`，阻断事件冒泡到外层容器。
+  - `src/renderer/components/StickyView.tsx`：将 `setPendingPopup` 改为函数式更新，已打开时再次点击可收起，未打开时按按钮位置展开。
+  - 验证：执行 `npm run test`（13/13 通过）；同时执行 `npx tsc -p tsconfig.renderer.json && npx tsc -p tsconfig.main.json && npx tsc -p tsconfig.preload.json`，发现 2 个既有类型错误（与本次改动无关）。
+- **已知限制**：
+  - `tsc` 当前仍存在历史类型错误：`StickyView.tsx` 的 `setNodeMarkup` 链式命令类型声明不匹配、`blockScroll.ts` 的参数类型不匹配；本次未扩大修复范围。
+- **关联假设**：
+  - 无新增假设。

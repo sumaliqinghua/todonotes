@@ -11,10 +11,16 @@ function parseStickyBookmarks(raw: unknown) {
       return [];
     }
     return parsed
-      .filter((item): item is { taskId: string; title: string } => {
+      .filter((item): item is { taskId: string; title: string; blockId?: string; blockContent?: string; blockType?: string } => {
         return Boolean(item && typeof item === "object" && typeof (item as any).taskId === "string");
       })
-      .map((item) => ({ taskId: item.taskId, title: typeof item.title === "string" ? item.title : "" }));
+      .map((item) => ({
+        taskId: item.taskId,
+        title: typeof item.title === "string" ? item.title : "",
+        ...(item.blockId && { blockId: item.blockId }),
+        ...(item.blockContent && { blockContent: item.blockContent }),
+        ...(item.blockType && { blockType: item.blockType })
+      }));
   } catch {
     return [];
   }

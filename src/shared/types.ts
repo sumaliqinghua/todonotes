@@ -39,6 +39,9 @@ export interface WindowState {
 export interface WindowBookmark {
   taskId: string;
   title: string;
+  blockId?: string;        // 可选：文本块的唯一ID，用于定位到具体的文本块
+  blockContent?: string;   // 可选：文本块的内容预览（前100个字符），用于显示
+  blockType?: string;      // 可选：文本块的类型（paragraph, heading, listItem等）
 }
 
 export interface PopupMenuItem {

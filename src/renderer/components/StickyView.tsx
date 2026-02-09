@@ -15,6 +15,8 @@ import { handleCopy } from "../utils/editorMarkdown";
 import { CollapsibleListItem } from "../utils/listCollapse";
 import { updateTaskItemIndent } from "../utils/taskIndent";
 import { hexToRgba } from "../utils/color";
+import { UniqueId } from "../utils/nodeId";
+import { scrollToBlock } from "../utils/blockScroll";
 
 const FOCUS_SECONDS = 25 * 60;
 const BREAK_SECONDS = 5 * 60;
@@ -96,6 +98,7 @@ export default function StickyView({
   const pomodoroTipTimerRef = useRef<number | null>(null);
   const pomodoroClickTimerRef = useRef<number | null>(null);
   const skipHeaderCommitRef = useRef(false);
+  const [pendingPopup, setPendingPopup] = useState<{ x: number; y: number } | null>(null);
 
   const errorToMessage = (error: unknown, fallback: string) => {
     if (error instanceof Error && error.message) {
@@ -126,7 +129,7 @@ export default function StickyView({
     }
   }).configure({ nested: true });
   const editor = useEditor({
-    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode],
+    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId],
     content: (task?.blocks as any) ?? { type: "doc", content: [{ type: "paragraph" }] },
     editable: true,
     editorProps: {
@@ -522,7 +525,7 @@ export default function StickyView({
       return;
     }
     onBookmarksChange((() => {
-      const existingIndex = bookmarks.findIndex((bookmark) => bookmark.taskId === task.id);
+      const existingIndex = bookmarks.findIndex((bookmark) => bookmark.taskId === task.id && !bookmark.blockId);
       if (existingIndex === -1) {
         return [...bookmarks, { taskId: task.id, title: task.title }];
       }
@@ -532,12 +535,112 @@ export default function StickyView({
     })());
   };
 
-  const removeBookmark = (taskId: string) => {
+  const addBlockBookmark = () => {
+    if (!task || !editor) {
+      return;
+    }
+
+    // 获取当前光标位置
+    const { from } = editor.state.selection;
+
+    // 查找光标所在的块节点
+    const $pos = editor.state.doc.resolve(from);
+    let blockNode = null;
+    let blockPos = from;
+
+    // 向上查找最近的块级节点
+    for (let depth = $pos.depth; depth > 0; depth--) {
+      const node = $pos.node(depth);
+      if (node.isBlock && node.type.name !== "doc") {
+        blockNode = node;
+        blockPos = $pos.before(depth);
+        break;
+      }
+    }
+
+    if (!blockNode) {
+      alert("无法定位到文本块");
+      return;
+    }
+
+    // 获取或生成节点ID
+    let blockId = blockNode.attrs.id;
+    if (!blockId) {
+      // 如果节点没有ID，生成一个并设置
+      blockId = `node_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      editor.chain().focus().setNodeMarkup(blockPos, undefined, {
+        ...blockNode.attrs,
+        id: blockId
+      }).run();
+    }
+
+    // 获取文本块内容（前100个字符）
+    const blockContent = blockNode.textContent.slice(0, 100);
+    const blockType = blockNode.type.name;
+
+    if (!blockContent.trim()) {
+      alert("文本块内容为空，无法添加书签");
+      return;
+    }
+
+    // 添加书签
+    onBookmarksChange((() => {
+      const existingIndex = bookmarks.findIndex(
+        (bookmark) => bookmark.taskId === task.id && bookmark.blockId === blockId
+      );
+      if (existingIndex === -1) {
+        return [...bookmarks, {
+          taskId: task.id,
+          title: task.title,
+          blockId,
+          blockContent,
+          blockType
+        }];
+      }
+      // 更新现有书签
+      const next = bookmarks.slice();
+      next[existingIndex] = {
+        taskId: task.id,
+        title: task.title,
+        blockId,
+        blockContent,
+        blockType
+      };
+      return next;
+    })());
+  };
+
+  const removeBookmark = (taskId: string, blockId?: string) => {
     setBookmarkTip(null);
-    onBookmarksChange(bookmarks.filter((bookmark) => bookmark.taskId !== taskId));
+    onBookmarksChange(bookmarks.filter((bookmark) => {
+      if (blockId) {
+        return !(bookmark.taskId === taskId && bookmark.blockId === blockId);
+      }
+      return !(bookmark.taskId === taskId && !bookmark.blockId);
+    }));
   };
 
   const buildBookmarkLabel = (title: string) => `${(title || "未命名").slice(0, 2)}...`;
+
+  const handleBlockBookmarkClick = (bookmark: WindowBookmark) => {
+    setPendingPopup(null);
+
+    // 如果不在当前页面，先跳转到对应页面
+    if (bookmark.taskId !== task?.id) {
+      onNavigate(bookmark.taskId, false);
+      // 等待页面加载后再滚动到文本块
+      setTimeout(() => {
+        if (editor && bookmark.blockId) {
+          scrollToBlock(editor, bookmark.blockId);
+        }
+      }, 300);
+    } else {
+      // 在当前页面，直接滚动到文本块
+      if (editor && bookmark.blockId) {
+        scrollToBlock(editor, bookmark.blockId);
+      }
+    }
+  };
 
   const buildBookmarkPathText = (ancestorsChain: Task[], currentTitle: string) => {
     const fullPath = [...ancestorsChain.map((item) => item.title || "未命名"), currentTitle || "未命名"];
@@ -657,6 +760,10 @@ export default function StickyView({
           label: "添加当前页到书签",
           action: addCurrentTaskBookmark
         },
+        {
+          label: "添加文本块到待处理",
+          action: addBlockBookmark
+        },
         insertChildMenuItem,
         {
           label: "添加子任务",
@@ -696,11 +803,41 @@ export default function StickyView({
       className="sticky-surface flex h-screen flex-col px-3 py-2 text-[#2b2b2b]"
       style={{ "--sticky-base": stickyBackground } as React.CSSProperties}
       onContextMenu={handleContextMenu}
+      onClick={() => setPendingPopup(null)}
     >
       {pomodoroTip ? <div className="no-drag sticky-tip">{pomodoroTip}</div> : null}
       {bookmarkTip ? (
         <div className="no-drag sticky-bookmark-tip" style={{ left: bookmarkTip.x, top: bookmarkTip.y }}>
           {bookmarkTip.text}
+        </div>
+      ) : null}
+      {pendingPopup ? (
+        <div
+          className="no-drag sticky-pending-popup"
+          style={{ left: pendingPopup.x, top: pendingPopup.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {bookmarks.filter((b) => b.blockId).map((bookmark) => (
+            <div key={`${bookmark.taskId}_${bookmark.blockId}`} className="sticky-pending-item">
+              <button
+                type="button"
+                className="sticky-pending-content"
+                onClick={() => handleBlockBookmarkClick(bookmark)}
+                title={bookmark.blockContent}
+              >
+                <div className="sticky-pending-text">{bookmark.blockContent}</div>
+                <div className="sticky-pending-meta">{bookmark.title}</div>
+              </button>
+              <button
+                type="button"
+                className="sticky-pending-remove"
+                aria-label="移除"
+                onClick={() => removeBookmark(bookmark.taskId, bookmark.blockId)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
         </div>
       ) : null}
       <div className="drag-region sticky-titlebar">
@@ -798,9 +935,9 @@ export default function StickyView({
             onForward={onHistoryForward}
           />
         </div>
-        {bookmarks.length > 0 ? (
+        {bookmarks.filter((b) => !b.blockId).length > 0 || bookmarks.filter((b) => b.blockId).length > 0 ? (
           <div className="no-drag sticky-bookmark-strip" aria-label="书签栏">
-            {bookmarks.map((bookmark) => (
+            {bookmarks.filter((b) => !b.blockId).map((bookmark) => (
               <div key={bookmark.taskId} className="sticky-bookmark-item">
                 <button
                   type="button"
@@ -830,6 +967,24 @@ export default function StickyView({
                 </button>
               </div>
             ))}
+            {bookmarks.filter((b) => b.blockId).length > 0 ? (
+              <div className="sticky-bookmark-item">
+                <button
+                  type="button"
+                  className="sticky-bookmark-link sticky-pending-button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setPendingPopup((current) =>
+                      current ? null : { x: rect.left, y: rect.bottom + 4 }
+                    );
+                  }}
+                  title="待处理条目"
+                >
+                  待处理 ({bookmarks.filter((b) => b.blockId).length})
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>

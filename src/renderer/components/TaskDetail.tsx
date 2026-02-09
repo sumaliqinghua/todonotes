@@ -15,6 +15,7 @@ import { createImageHandlers } from "../utils/editorImages";
 import { handleCopy } from "../utils/editorMarkdown";
 import { CollapsibleListItem } from "../utils/listCollapse";
 import { updateTaskItemIndent } from "../utils/taskIndent";
+import { UniqueId } from "../utils/nodeId";
 
 const DEFAULT_BLOCKS = {
   type: "doc",
@@ -101,7 +102,7 @@ export default function TaskDetail({
   }).configure({ nested: true });
 
   const editor = useEditor({
-    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode],
+    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId],
     content: (task?.blocks as any) ?? DEFAULT_BLOCKS,
     editorProps: {
       handlePaste: imageHandlers.handlePaste,
