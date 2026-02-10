@@ -305,3 +305,21 @@
   - `tsc` 当前仍存在历史类型错误：`StickyView.tsx` 的 `setNodeMarkup` 链式命令类型声明不匹配、`blockScroll.ts` 的参数类型不匹配；本次未扩大修复范围。
 - **关联假设**：
   - 无新增假设。
+
+## [2026-02-10] M0.13-R10 待处理弹层样式适配 + 点击定位与光标落点
+- **What（做了什么）**：
+  - 调整 sticky“待处理”弹层视觉：背景、边框、分割线与 hover 反馈改为与便签主题一致的浅黄系样式。
+  - 修复点击待处理条目后的定位链路：支持跨页面定位到目标块，并将光标放到该行末尾。
+  - 强化滚动定位工具：先设置编辑器选区再滚动高亮，避免“看起来滚到附近但光标不在目标行”的问题。
+- **Why（为什么这么做）**：
+  - 你反馈当前弹层白底与便签背景割裂，且点击条目后“应定位并把光标放到该行末尾”未稳定满足。
+- **How（怎么实现的）**：
+  - `src/renderer/styles/app.css`：重做 `.sticky-pending-*` 样式（主题背景混色、边框色、hover 色、删除按钮分隔线）以匹配便签背景。
+  - `src/renderer/components/StickyView.tsx`：新增 `pendingFocusRef` 挂起定位目标；点击待处理条目时记录目标并在任务切换后自动定位，必要时短延迟重试一次。
+  - `src/renderer/components/StickyView.tsx`：点击条目时同步清理 tooltip hover 状态，避免跳转后提示残留。
+  - `src/renderer/utils/blockScroll.ts`：将光标位置改为“目标块行末（`pos + nodeSize - 1`）”，并优先通过 `nodeDOM` 定位元素后执行滚动与高亮。
+  - 验证：`npm run test` 通过（13/13）；`npx tsc -p tsconfig.renderer.json` 仅剩 1 个既有错误（`StickyView.tsx` 中 `setNodeMarkup` 链式命令类型声明问题，与本次功能无关）。
+- **已知限制**：
+  - 跨页面定位当前采用“挂起 + 一次重试”策略；极端慢渲染场景若仍未命中，可后续增加编辑器 ready 事件驱动。
+- **关联假设**：
+  - `[2026-02-10/M0.13-R10] 待处理条目跨页面定位采用“挂起定位 + 重试一次”`

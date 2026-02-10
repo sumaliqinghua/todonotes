@@ -99,6 +99,7 @@ export default function StickyView({
   const pomodoroClickTimerRef = useRef<number | null>(null);
   const skipHeaderCommitRef = useRef(false);
   const [pendingPopup, setPendingPopup] = useState<{ x: number; y: number } | null>(null);
+  const pendingFocusRef = useRef<{ taskId: string; blockId: string } | null>(null);
 
   const errorToMessage = (error: unknown, fallback: string) => {
     if (error instanceof Error && error.message) {
@@ -202,6 +203,32 @@ export default function StickyView({
       editor.commands.setContent(next, false);
     }
     prevTaskIdRef.current = task.id;
+  }, [editor, task?.id, task?.blocks]);
+
+  useEffect(() => {
+    const pending = pendingFocusRef.current;
+    if (!pending || !editor || !task) {
+      return;
+    }
+    if (pending.taskId !== task.id) {
+      return;
+    }
+    const found = scrollToBlock(editor, pending.blockId);
+    if (found) {
+      pendingFocusRef.current = null;
+      return;
+    }
+    const retryTimer = window.setTimeout(() => {
+      const latest = pendingFocusRef.current;
+      if (!latest || latest.taskId !== task.id) {
+        return;
+      }
+      if (scrollToBlock(editor, latest.blockId)) {
+        pendingFocusRef.current = null;
+      }
+    }, 120);
+
+    return () => window.clearTimeout(retryTimer);
   }, [editor, task?.id, task?.blocks]);
 
   useEffect(() => {
@@ -624,20 +651,26 @@ export default function StickyView({
 
   const handleBlockBookmarkClick = (bookmark: WindowBookmark) => {
     setPendingPopup(null);
+    setBookmarkTip(null);
+    bookmarkHoverTaskIdRef.current = null;
+    if (!bookmark.blockId) {
+      return;
+    }
+    pendingFocusRef.current = {
+      taskId: bookmark.taskId,
+      blockId: bookmark.blockId
+    };
 
     // 如果不在当前页面，先跳转到对应页面
     if (bookmark.taskId !== task?.id) {
       onNavigate(bookmark.taskId, false);
-      // 等待页面加载后再滚动到文本块
-      setTimeout(() => {
-        if (editor && bookmark.blockId) {
-          scrollToBlock(editor, bookmark.blockId);
-        }
-      }, 300);
     } else {
       // 在当前页面，直接滚动到文本块
-      if (editor && bookmark.blockId) {
-        scrollToBlock(editor, bookmark.blockId);
+      if (editor) {
+        const found = scrollToBlock(editor, bookmark.blockId);
+        if (found) {
+          pendingFocusRef.current = null;
+        }
       }
     }
   };

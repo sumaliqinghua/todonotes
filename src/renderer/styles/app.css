@@ -466,17 +466,24 @@
   }
 
   .sticky-pending-popup {
-    @apply fixed z-50 min-w-[280px] max-w-[420px] rounded-md border border-black/20 bg-white shadow-xl;
+    @apply fixed z-50 min-w-[280px] max-w-[420px] overflow-hidden rounded-xl border shadow-xl backdrop-blur;
+    background: color-mix(in srgb, var(--sticky-panel-color, #f6e8a6) 82%, #ffffff 18%);
+    border-color: rgba(60, 44, 10, 0.2);
     max-height: 400px;
     overflow-y: auto;
   }
 
   .sticky-pending-item {
-    @apply flex items-start border-b border-black/10 last:border-b-0;
+    @apply flex items-start border-b last:border-b-0;
+    border-color: rgba(60, 44, 10, 0.16);
   }
 
   .sticky-pending-content {
-    @apply flex-1 px-3 py-2 text-left transition hover:bg-black/5;
+    @apply flex-1 px-3 py-2 text-left transition;
+  }
+
+  .sticky-pending-content:hover {
+    background: rgba(60, 44, 10, 0.08);
   }
 
   .sticky-pending-text {
@@ -485,12 +492,17 @@
   }
 
   .sticky-pending-meta {
-    @apply mt-1 text-[10px] text-black/50;
+    @apply mt-1 text-[10px] text-black/55;
   }
 
   .sticky-pending-remove {
-    @apply px-2 py-2 text-xs text-black/60 transition hover:bg-black/10 hover:text-black;
+    @apply px-2 py-2 text-xs text-black/60 transition hover:text-black;
+    border-left: 1px solid rgba(60, 44, 10, 0.12);
     line-height: 1;
+  }
+
+  .sticky-pending-remove:hover {
+    background: rgba(60, 44, 10, 0.08);
   }
 
   .block-highlight {

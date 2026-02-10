@@ -27,32 +27,38 @@ export function scrollToBlock(editor: any, blockId: string): boolean {
     return false;
   }
 
-  // 滚动到目标位置
-  const dom = editor.view.domAtPos(targetPos);
-  if (dom.node) {
-    const element = dom.node.nodeType === Node.ELEMENT_NODE
-      ? (dom.node as HTMLElement)
-      : (dom.node.parentElement as HTMLElement);
-
-    if (element) {
-      // 滚动到元素
-      element.scrollIntoView({ behavior: "smooth", block: "center" });
-
-      // 添加高亮效果
-      element.classList.add("block-highlight");
-      setTimeout(() => {
-        element.classList.remove("block-highlight");
-      }, 2000);
-
-      // 将光标定位到节点末尾
-      const endPos = targetPos + targetNode.nodeSize;
-      const selection = TextSelection.create(editor.state.doc, endPos);
-      editor.view.dispatch(editor.state.tr.setSelection(selection));
-      editor.view.focus();
-
-      return true;
-    }
+  const resolvedPos = typeof targetPos === "number" ? targetPos : Number.NaN;
+  const resolvedNodeSize = Number(targetNode.nodeSize ?? 0);
+  if (!Number.isFinite(resolvedPos) || !Number.isFinite(resolvedNodeSize) || resolvedNodeSize <= 0) {
+    return false;
   }
 
-  return false;
+  const blockEndPos = Math.min(
+    editor.state.doc.content.size,
+    Math.max(1, resolvedPos + resolvedNodeSize - 1)
+  );
+  const selection = TextSelection.create(editor.state.doc, blockEndPos);
+  editor.view.dispatch(editor.state.tr.setSelection(selection));
+  editor.view.focus();
+
+  const nodeDom = editor.view.nodeDOM(resolvedPos);
+  const dom = editor.view.domAtPos(resolvedPos);
+  const element =
+    nodeDom && nodeDom.nodeType === Node.ELEMENT_NODE
+      ? (nodeDom as HTMLElement)
+      : dom?.node.nodeType === Node.ELEMENT_NODE
+        ? (dom.node as HTMLElement)
+        : (dom?.node.parentElement as HTMLElement | null);
+
+  if (!element) {
+    return true;
+  }
+
+  element.scrollIntoView({ behavior: "smooth", block: "center" });
+  element.classList.add("block-highlight");
+  setTimeout(() => {
+    element.classList.remove("block-highlight");
+  }, 2000);
+
+  return true;
 }
