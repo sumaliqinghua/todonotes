@@ -323,3 +323,39 @@
   - 跨页面定位当前采用“挂起 + 一次重试”策略；极端慢渲染场景若仍未命中，可后续增加编辑器 ready 事件驱动。
 - **关联假设**：
   - `[2026-02-10/M0.13-R10] 待处理条目跨页面定位采用“挂起定位 + 重试一次”`
+
+## [2026-02-11] M0.13-R11 同页多文本块加入“待处理”修复
+- **What（做了什么）**：
+  - 修复 sticky 右键“添加文本块到待处理”总是落在旧光标块的问题，改为优先使用右键点击位置定位块。
+  - 允许同一文档不同位置的文本块连续加入待处理列表，不再表现为“同页只能加一条”。
+  - 将块 ID 写回从链式命令改为 ProseMirror 事务，消除 `setNodeMarkup` 的类型报错。
+- **Why（为什么这么做）**：
+  - 用户反馈同页不同文本块无法都加入待处理，核心原因是新增动作读取的是历史 selection 而非右键实际点击块。
+- **How（怎么实现的）**：
+  - `src/renderer/components/StickyView.tsx`：新增 `pendingBlockBookmarkPosRef`，在 `handleContextMenu` 中通过 `editor.view.posAtCoords` 记录右键点击位置，并同步设置临时选区。
+  - `src/renderer/components/StickyView.tsx`：`addBlockBookmark` 优先使用 `pendingBlockBookmarkPosRef` 定位块，使用后立即清空，避免污染后续操作。
+  - `src/renderer/components/StickyView.tsx`：块缺少 `id` 时，改为 `tr.setNodeMarkup(...) + editor.view.dispatch(tr)` 写回属性。
+  - 验证：`npm run test`（13/13）通过；`npx tsc -p tsconfig.main.json && npx tsc -p tsconfig.preload.json && npx tsc -p tsconfig.renderer.json` 通过。
+- **已知限制**：
+  - 右键定位依赖浏览器坐标命中，若未来引入复杂浮层遮罩，需确保 `posAtCoords` 仍能命中编辑区。
+- **关联假设**：
+  - `[2026-02-11/M0.13-R11] 待处理块锚点以右键点击位置为准`
+
+## [2026-02-14] M0.13-R12 任务重名校验改为同父任务兄弟唯一
+- **What（做了什么）**：
+  - 将任务标题重名规则从“全库唯一”调整为“同一父任务下的兄弟子任务不允许重名”。
+  - 补齐所有会改变父子挂接关系的入口校验：插入已有子任务、移动子任务引用、`edge:create`、`edge:reparent`。
+  - 更新 `task:validateUniqueTitle` IPC 入参，支持按 `parentId` 做前置校验提示。
+- **Why（为什么这么做）**：
+  - 你明确指出当前全局禁止同名不符合预期，正确规则应为“仅兄弟级子任务去重”。
+  - 仅改创建/重命名会留下挂接入口漏洞，因此需要统一收口保证规则一致。
+- **How（怎么实现的）**：
+  - `src/main/db/tasksRepo.ts`：新增 `hasSiblingTaskTitle`，改为按 `parent_task_id + title` 查询同级重名（排除已删除任务，可排除当前任务 ID）。
+  - `src/main/ipc/handlers.ts`：新增父任务范围解析逻辑（`parentId` 或从 `excludeTaskId` 反查父任务），统一通过 `assertUniqueTaskTitle` 执行同级校验；并在 `task:createFromBlock`、`task:update(title)`、`task:insertExistingChildLink`、`task:moveChildReference`、`edge:create`、`edge:reparent` 中接入。
+  - `src/shared/ipc.ts` 与 `src/renderer/App.tsx`：扩展 `task:validateUniqueTitle` 支持 `parentId`，在“创建子任务”路径传入当前父任务，重命名继续传 `excludeTaskId`。
+  - 验证：`npm run test` 通过（13/13）；`npx tsc -p tsconfig.main.json --noEmit`、`npx tsc -p tsconfig.preload.json --noEmit`、`npx tsc -p tsconfig.renderer.json --noEmit` 全通过。
+- **已知限制**：
+  - 根任务（无父任务）不参与同级重名限制，允许同名根任务并存。
+- **关联假设**：
+  - `[2026-02-08/M0.12] 任务标题唯一性按“全库未删除任务”校验`（已推翻）
+  - `[2026-02-14/M0.13-R12] 根任务名称允许同名`

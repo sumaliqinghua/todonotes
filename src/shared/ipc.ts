@@ -15,7 +15,7 @@ import type {
 export interface IpcInvokeMap {
   "task:create": (input: TaskCreateInput) => Task;
   "task:update": (input: TaskUpdateInput) => Task;
-  "task:validateUniqueTitle": (input: { title: string; excludeTaskId?: string }) => { ok: boolean; normalizedTitle: string; message?: string };
+  "task:validateUniqueTitle": (input: { title: string; excludeTaskId?: string; parentId?: string }) => { ok: boolean; normalizedTitle: string; message?: string };
   "task:get": (input: { id: string }) => Task | null;
   "task:listRoots": (input: { includeArchived?: boolean; includeDeleted?: boolean }) => Task[];
   "task:listChildren": (input: { parentId: string; includeArchived?: boolean; includeDeleted?: boolean }) => Task[];

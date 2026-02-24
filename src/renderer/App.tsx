@@ -167,8 +167,12 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     return fallback;
   };
 
-  const validateUniqueTitle = async (title: string, excludeTaskId?: string) => {
-    const result = await api.invoke("task:validateUniqueTitle", { title, excludeTaskId });
+  const validateUniqueTitle = async (title: string, options?: { excludeTaskId?: string; parentId?: string }) => {
+    const result = await api.invoke("task:validateUniqueTitle", {
+      title,
+      excludeTaskId: options?.excludeTaskId,
+      parentId: options?.parentId
+    });
     if (!result.ok) {
       throw new Error(result.message || `任务标题“${result.normalizedTitle}”已存在`);
     }
@@ -176,7 +180,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
   };
 
   const renameTask = async (taskId: string, title: string) => {
-    const normalizedTitle = await validateUniqueTitle(title, taskId);
+    const normalizedTitle = await validateUniqueTitle(title, { excludeTaskId: taskId });
     await api.invoke("task:update", { id: taskId, title: normalizedTitle });
     if (windowType === "library") {
       await refreshLibrary(searchQuery, libraryTab);
@@ -549,7 +553,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             try {
               const input = await requestTitle({ title: "子任务标题", placeholder: "请输入子任务标题" });
               const title = input?.trim() || `新子任务 ${new Date().toLocaleTimeString()}`;
-              await validateUniqueTitle(title);
+              await validateUniqueTitle(title, { parentId: task.id });
               const child = await api.invoke("task:createFromBlock", { parentId: task.id, title });
               const parent = await api.invoke("task:get", { id: task.id });
               if (parent) {
@@ -646,7 +650,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     if (!currentTask) {
       return { taskId: "", title: "", isCompleted: false };
     }
-    await validateUniqueTitle(title);
+    await validateUniqueTitle(title, { parentId: currentTask.id });
     const task = await api.invoke("task:createFromBlock", { parentId: currentTask.id, title });
     await loadTask(currentTask.id);
     return { taskId: task.id, title: task.title, isCompleted: task.isCompleted };

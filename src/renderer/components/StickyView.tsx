@@ -100,6 +100,7 @@ export default function StickyView({
   const skipHeaderCommitRef = useRef(false);
   const [pendingPopup, setPendingPopup] = useState<{ x: number; y: number } | null>(null);
   const pendingFocusRef = useRef<{ taskId: string; blockId: string } | null>(null);
+  const pendingBlockBookmarkPosRef = useRef<number | null>(null);
 
   const errorToMessage = (error: unknown, fallback: string) => {
     if (error instanceof Error && error.message) {
@@ -567,8 +568,11 @@ export default function StickyView({
       return;
     }
 
-    // 获取当前光标位置
-    const { from } = editor.state.selection;
+    // 优先使用“右键点击位置”，避免总是落在旧光标所在块
+    const from = typeof pendingBlockBookmarkPosRef.current === "number"
+      ? pendingBlockBookmarkPosRef.current
+      : editor.state.selection.from;
+    pendingBlockBookmarkPosRef.current = null;
 
     // 查找光标所在的块节点
     const $pos = editor.state.doc.resolve(from);
@@ -595,10 +599,12 @@ export default function StickyView({
     if (!blockId) {
       // 如果节点没有ID，生成一个并设置
       blockId = `node_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      editor.chain().focus().setNodeMarkup(blockPos, undefined, {
+      const tr = editor.state.tr;
+      tr.setNodeMarkup(blockPos, undefined, {
         ...blockNode.attrs,
         id: blockId
-      }).run();
+      });
+      editor.view.dispatch(tr);
     }
 
     // 获取文本块内容（前100个字符）
@@ -716,6 +722,18 @@ export default function StickyView({
       return;
     }
     const target = event.target as HTMLElement;
+
+    // 右键打开菜单时，将编辑器选择同步到鼠标点击位置
+    if (editor.view.dom.contains(target)) {
+      const pos = editor.view.posAtCoords({ left: event.clientX, top: event.clientY });
+      if (typeof pos?.pos === "number") {
+        pendingBlockBookmarkPosRef.current = pos.pos;
+        editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, pos.pos)));
+      }
+    } else {
+      pendingBlockBookmarkPosRef.current = null;
+    }
+
     const linkEl = target.closest(".task-link-block") as HTMLElement | null;
     if (linkEl) {
       const taskId = linkEl.dataset.taskId;

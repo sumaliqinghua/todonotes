@@ -47,22 +47,39 @@ export function createTask(input: TaskCreateInput): Task {
   return getTaskById(id)!;
 }
 
-export function hasTaskTitle(title: string, options?: { excludeTaskId?: string }): boolean {
+export function hasSiblingTaskTitle(title: string, parentId: string, options?: { excludeTaskId?: string }): boolean {
   const db = getDb();
   const normalized = title.trim();
-  if (!normalized) {
+  if (!normalized || !parentId) {
     return false;
   }
   const excludeTaskId = options?.excludeTaskId;
   if (excludeTaskId) {
     const row = db
       .prepare(
-        "SELECT 1 FROM tasks WHERE lower(trim(title)) = lower(trim(?)) AND id != ? AND is_deleted = 0 LIMIT 1"
+        `SELECT 1
+         FROM tasks t
+         JOIN edges e ON e.child_task_id = t.id
+         WHERE e.parent_task_id = ?
+           AND lower(trim(t.title)) = lower(trim(?))
+           AND t.id != ?
+           AND t.is_deleted = 0
+         LIMIT 1`
       )
-      .get(normalized, excludeTaskId);
+      .get(parentId, normalized, excludeTaskId);
     return Boolean(row);
   }
-  const row = db.prepare("SELECT 1 FROM tasks WHERE lower(trim(title)) = lower(trim(?)) AND is_deleted = 0 LIMIT 1").get(normalized);
+  const row = db
+    .prepare(
+      `SELECT 1
+       FROM tasks t
+       JOIN edges e ON e.child_task_id = t.id
+       WHERE e.parent_task_id = ?
+         AND lower(trim(t.title)) = lower(trim(?))
+         AND t.is_deleted = 0
+       LIMIT 1`
+    )
+    .get(parentId, normalized);
   return Boolean(row);
 }
 

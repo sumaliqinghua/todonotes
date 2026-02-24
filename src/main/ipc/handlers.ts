@@ -2,7 +2,7 @@ import { ipcMain, shell } from "electron";
 import type { IpcInvokeMap } from "../../shared/ipc";
 import {
   createTask,
-  hasTaskTitle,
+  hasSiblingTaskTitle,
   updateTask,
   getTaskById,
   listParentsByChildId,
@@ -38,13 +38,39 @@ import {
   syncChildStateInBlocks
 } from "../../shared/taskBlocksSync";
 
-function assertUniqueTaskTitle(title: string, options?: { excludeTaskId?: string }) {
+function resolveValidationParentIds(options?: { excludeTaskId?: string; parentId?: string }) {
+  const parentIds = new Set<string>();
+  if (options?.parentId) {
+    parentIds.add(options.parentId);
+  }
+  if (options?.excludeTaskId && parentIds.size === 0) {
+    const parents = listParentsByChildId(options.excludeTaskId);
+    parents.forEach((parent) => {
+      parentIds.add(parent.id);
+    });
+  }
+  return Array.from(parentIds);
+}
+
+function hasDuplicateSiblingTitle(title: string, options?: { excludeTaskId?: string; parentId?: string }) {
+  const parentIds = resolveValidationParentIds(options);
+  if (parentIds.length === 0) {
+    return false;
+  }
+  return parentIds.some((parentId) => hasSiblingTaskTitle(title, parentId, { excludeTaskId: options?.excludeTaskId }));
+}
+
+function duplicateTitleErrorMessage(title: string) {
+  return `同一父任务下已存在标题“${title}”的子任务，请使用其他名称`;
+}
+
+function assertUniqueTaskTitle(title: string, options?: { excludeTaskId?: string; parentId?: string }) {
   const normalized = normalizeTaskTitle(title);
   if (!normalized) {
     return;
   }
-  if (hasTaskTitle(normalized, { excludeTaskId: options?.excludeTaskId })) {
-    throw new Error(`任务标题“${normalized}”已存在，请使用其他名称`);
+  if (hasDuplicateSiblingTitle(normalized, options)) {
+    throw new Error(duplicateTitleErrorMessage(normalized));
   }
 }
 
@@ -152,11 +178,11 @@ export function registerIpcHandlers() {
     if (!normalized) {
       return { ok: true, normalizedTitle: "" };
     }
-    if (hasTaskTitle(normalized, { excludeTaskId: input.excludeTaskId })) {
+    if (hasDuplicateSiblingTitle(normalized, { excludeTaskId: input.excludeTaskId, parentId: input.parentId })) {
       return {
         ok: false,
         normalizedTitle: normalized,
-        message: `任务标题“${normalized}”已存在，请使用其他名称`
+        message: duplicateTitleErrorMessage(normalized)
       };
     }
     return { ok: true, normalizedTitle: normalized };
@@ -197,7 +223,7 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle("task:createFromBlock", (_event, input: Parameters<IpcInvokeMap["task:createFromBlock"]>[0]) => {
-    assertUniqueTaskTitle(input.title);
+    assertUniqueTaskTitle(input.title, { parentId: input.parentId });
     const task = createTask({ title: input.title });
     createEdge(input.parentId, task.id);
     broadcast("task:updated", { taskId: input.parentId });
@@ -215,6 +241,7 @@ export function registerIpcHandlers() {
       throw new Error("子任务不存在");
     }
     assertValidParenting(child.id, parent.id);
+    assertUniqueTaskTitle(child.title, { parentId: parent.id, excludeTaskId: child.id });
 
     createEdge(input.parentId, input.childId);
 
@@ -243,6 +270,7 @@ export function registerIpcHandlers() {
       return child;
     }
     assertValidParenting(child.id, targetParent.id);
+    assertUniqueTaskTitle(child.title, { parentId: targetParent.id, excludeTaskId: child.id });
 
     deleteEdge(sourceParent.id, child.id);
     createEdge(targetParent.id, child.id);
@@ -301,6 +329,11 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle("edge:create", (_event, input: Parameters<IpcInvokeMap["edge:create"]>[0]) => {
+    const child = getTaskById(input.childId);
+    if (!child || child.isDeleted) {
+      throw new Error("子任务不存在");
+    }
+    assertUniqueTaskTitle(child.title, { parentId: input.parentId, excludeTaskId: child.id });
     createEdge(input.parentId, input.childId);
   });
 
@@ -314,6 +347,11 @@ export function registerIpcHandlers() {
       throw new Error("任务不存在");
     }
 
+    if (input.toParentId) {
+      assertValidParenting(input.childId, input.toParentId);
+      assertUniqueTaskTitle(child.title, { parentId: input.toParentId, excludeTaskId: child.id });
+    }
+
     if (input.fromParentId) {
       deleteEdge(input.fromParentId, input.childId);
     } else {
@@ -321,7 +359,6 @@ export function registerIpcHandlers() {
     }
 
     if (input.toParentId) {
-      assertValidParenting(input.childId, input.toParentId);
       createEdge(input.toParentId, input.childId);
       broadcast("task:updated", { taskId: input.toParentId });
     }

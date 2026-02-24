@@ -1,6 +1,6 @@
 # 项目计划（里程碑驱动）
 
-更新时间：2026-02-10（M0.13-R10）
+更新时间：2026-02-14（M0.13-R12）
 
 ## 里程碑总览
 
@@ -29,6 +29,8 @@
 - [x] M0.13-R8：hover 便签改为显示层级路径
 - [x] M0.13-R9：便签“待处理”按钮点击无响应修复
 - [x] M0.13-R10：待处理弹层样式适配 + 点击定位与光标落点
+- [x] M0.13-R11：同页多文本块可重复加入“待处理”
+- [x] M0.13-R12：任务重名规则改为“同父任务兄弟子任务唯一”
 - [ ] M3：Markdown 粘贴解析能力补齐
 
 ---
@@ -539,6 +541,40 @@
 
 - [x] 执行内容：回归验证并同步文档
   - 验收标准：`npm run test` 通过，`plan.md` / `Records.md` / `PROJECT_STATUS.md` / `ASSUMPTIONS.md` 已更新
+
+状态：`[x] 已完成`
+
+---
+
+## M0.13-R11：同页多文本块可重复加入“待处理”
+
+### 任务清单
+
+- [x] 执行内容：修复“添加文本块到待处理”的定位来源
+  - 验收标准：右键任意文本块后执行“添加文本块到待处理”，应以右键点击块为准，而非旧光标所在块
+
+- [x] 执行内容：补齐块 ID 写回事务，避免类型与命令链冲突
+  - 验收标准：块无 `id` 时可正常写回 `id`，`tsc` 不再出现 `setNodeMarkup` 链式命令类型报错
+
+- [x] 执行内容：回归验证并同步文档
+  - 验收标准：`npm run test` 与 `npx tsc -p tsconfig.main.json && npx tsc -p tsconfig.preload.json && npx tsc -p tsconfig.renderer.json` 通过，`PRD.md` / `plan.md` / `Records.md` / `PROJECT_STATUS.md` / `ASSUMPTIONS.md` 已更新
+
+状态：`[x] 已完成`
+
+---
+
+## M0.13-R12：任务重名规则改为“同父任务兄弟子任务唯一”
+
+### 任务清单
+
+- [x] 执行内容：将重名校验从“全库唯一”改为“同父任务下兄弟子任务唯一”
+  - 验收标准：跨父任务允许同名；同一父任务下创建/重命名子任务时仍拦截重名
+
+- [x] 执行内容：补齐子任务挂接入口的同父级重名防护
+  - 验收标准：插入已有子任务、移动子任务引用、`edge:create/reparent` 到目标父任务时，若与目标父任务现有兄弟同名则阻止操作
+
+- [x] 执行内容：回归验证并同步文档
+  - 验收标准：`npm run test` 与 `npx tsc -p tsconfig.main.json --noEmit && npx tsc -p tsconfig.preload.json --noEmit && npx tsc -p tsconfig.renderer.json --noEmit` 通过，`PRD.md` / `plan.md` / `Records.md` / `PROJECT_STATUS.md` / `ASSUMPTIONS.md` / `Docs/用户指南.md` 已更新
 
 状态：`[x] 已完成`
 
