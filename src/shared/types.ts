@@ -40,6 +40,7 @@ export interface WindowBookmark {
   taskId: string;
   title: string;
   blockId?: string;        // 可选：文本块的唯一ID，用于定位到具体的文本块
+  blockCursorOffset?: number; // 可选：文本块内光标偏移（相对块起始位置），用于恢复到记录行末
   blockContent?: string;   // 可选：文本块的内容预览（前100个字符），用于显示
   blockType?: string;      // 可选：文本块的类型（paragraph, heading, listItem等）
 }

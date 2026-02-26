@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
-import { TextSelection } from "@tiptap/pm/state";
+import { Selection, TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
@@ -99,7 +99,7 @@ export default function StickyView({
   const pomodoroClickTimerRef = useRef<number | null>(null);
   const skipHeaderCommitRef = useRef(false);
   const [pendingPopup, setPendingPopup] = useState<{ x: number; y: number } | null>(null);
-  const pendingFocusRef = useRef<{ taskId: string; blockId: string } | null>(null);
+  const pendingFocusRef = useRef<{ taskId: string; blockId: string; blockCursorOffset?: number } | null>(null);
   const pendingBlockBookmarkPosRef = useRef<number | null>(null);
 
   const errorToMessage = (error: unknown, fallback: string) => {
@@ -214,7 +214,7 @@ export default function StickyView({
     if (pending.taskId !== task.id) {
       return;
     }
-    const found = scrollToBlock(editor, pending.blockId);
+    const found = scrollToBlock(editor, pending.blockId, pending.blockCursorOffset);
     if (found) {
       pendingFocusRef.current = null;
       return;
@@ -224,7 +224,7 @@ export default function StickyView({
       if (!latest || latest.taskId !== task.id) {
         return;
       }
-      if (scrollToBlock(editor, latest.blockId)) {
+      if (scrollToBlock(editor, latest.blockId, latest.blockCursorOffset)) {
         pendingFocusRef.current = null;
       }
     }, 120);
@@ -563,41 +563,118 @@ export default function StickyView({
     })());
   };
 
+  const countNodeIdOccurrences = (doc: Editor["state"]["doc"], nodeId: string): number => {
+    let count = 0;
+    doc.descendants((node) => {
+      if (node.attrs?.id === nodeId) {
+        count += 1;
+      }
+      return true;
+    });
+    return count;
+  };
+
+  const resolveBlockAnchor = (
+    doc: Editor["state"]["doc"],
+    rawPos: number
+  ): { blockNode: any; blockPos: number; lineEndPos: number | null } | null => {
+    const safePos = Math.max(1, Math.min(doc.content.size, rawPos));
+
+    const findFirstTextblockWithin = (
+      containerPos: number,
+      containerNode: any
+    ): { blockNode: any; blockPos: number; lineEndPos: number } | null => {
+      const fromPos = Math.max(1, containerPos + 1);
+      const toPos = Math.min(doc.content.size, containerPos + containerNode.nodeSize - 1);
+      if (fromPos > toPos) {
+        return null;
+      }
+      let matched: { blockNode: any; blockPos: number; lineEndPos: number } | null = null;
+      doc.nodesBetween(fromPos, toPos, (node, pos) => {
+        if (node.isTextblock) {
+          matched = {
+            blockNode: node,
+            blockPos: pos,
+            lineEndPos: pos + node.nodeSize - 1
+          };
+          return false;
+        }
+        return true;
+      });
+      return matched;
+    };
+
+    const directNode = doc.nodeAt(safePos);
+    if (directNode?.isTextblock) {
+      return {
+        blockNode: directNode,
+        blockPos: safePos,
+        lineEndPos: safePos + directNode.nodeSize - 1
+      };
+    }
+    if (directNode?.isBlock && directNode.type.name !== "doc") {
+      const nested = findFirstTextblockWithin(safePos, directNode);
+      if (nested) {
+        return nested;
+      }
+    }
+
+    const nearSelection = Selection.near(doc.resolve(safePos), -1);
+    const $pos = doc.resolve(nearSelection.from);
+
+    for (let depth = $pos.depth; depth > 0; depth--) {
+      const node = $pos.node(depth);
+      if (node.isTextblock) {
+        return {
+          blockNode: node,
+          blockPos: $pos.before(depth),
+          lineEndPos: $pos.end(depth)
+        };
+      }
+    }
+
+    for (let depth = $pos.depth; depth > 0; depth--) {
+      const node = $pos.node(depth);
+      if (node.isBlock && node.type.name !== "doc") {
+        const fallbackPos = $pos.before(depth);
+        const nested = findFirstTextblockWithin(fallbackPos, node);
+        if (nested) {
+          return nested;
+        }
+        return {
+          blockNode: node,
+          blockPos: fallbackPos,
+          lineEndPos: null
+        };
+      }
+    }
+
+    return null;
+  };
+
   const addBlockBookmark = () => {
     if (!task || !editor) {
       return;
     }
 
     // 优先使用“右键点击位置”，避免总是落在旧光标所在块
-    const from = typeof pendingBlockBookmarkPosRef.current === "number"
+    const rawFrom = typeof pendingBlockBookmarkPosRef.current === "number"
       ? pendingBlockBookmarkPosRef.current
       : editor.state.selection.from;
     pendingBlockBookmarkPosRef.current = null;
-
-    // 查找光标所在的块节点
-    const $pos = editor.state.doc.resolve(from);
-    let blockNode = null;
-    let blockPos = from;
-
-    // 向上查找最近的块级节点
-    for (let depth = $pos.depth; depth > 0; depth--) {
-      const node = $pos.node(depth);
-      if (node.isBlock && node.type.name !== "doc") {
-        blockNode = node;
-        blockPos = $pos.before(depth);
-        break;
-      }
-    }
-
-    if (!blockNode) {
+    const anchor = resolveBlockAnchor(editor.state.doc, rawFrom);
+    if (!anchor) {
       alert("无法定位到文本块");
       return;
     }
+    let { blockNode, blockPos, lineEndPos } = anchor;
 
-    // 获取或生成节点ID
-    let blockId = blockNode.attrs.id;
-    if (!blockId) {
-      // 如果节点没有ID，生成一个并设置
+    // 获取或生成节点ID；若命中重复ID，强制为当前块重置唯一ID，避免回跳到同ID的其他块
+    let blockId = typeof blockNode.attrs.id === "string" && blockNode.attrs.id.trim()
+      ? blockNode.attrs.id
+      : "";
+    const shouldResetId = !blockId || countNodeIdOccurrences(editor.state.doc, blockId) > 1;
+    if (shouldResetId) {
       blockId = `node_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       const tr = editor.state.tr;
       tr.setNodeMarkup(blockPos, undefined, {
@@ -605,6 +682,18 @@ export default function StickyView({
         id: blockId
       });
       editor.view.dispatch(tr);
+      const refreshed = editor.state.doc.nodeAt(blockPos);
+      if (refreshed) {
+        blockNode = refreshed;
+      }
+      if (lineEndPos !== null) {
+        lineEndPos = blockPos + blockNode.nodeSize - 1;
+      }
+    }
+
+    let blockCursorOffset = Math.max(1, blockNode.nodeSize - 1);
+    if (typeof lineEndPos === "number") {
+      blockCursorOffset = Math.max(1, Math.min(blockNode.nodeSize - 1, lineEndPos - blockPos));
     }
 
     // 获取文本块内容（前100个字符）
@@ -619,13 +708,17 @@ export default function StickyView({
     // 添加书签
     onBookmarksChange((() => {
       const existingIndex = bookmarks.findIndex(
-        (bookmark) => bookmark.taskId === task.id && bookmark.blockId === blockId
+        (bookmark) =>
+          bookmark.taskId === task.id &&
+          bookmark.blockId === blockId &&
+          (typeof bookmark.blockCursorOffset !== "number" || bookmark.blockCursorOffset === blockCursorOffset)
       );
       if (existingIndex === -1) {
         return [...bookmarks, {
           taskId: task.id,
           title: task.title,
           blockId,
+          blockCursorOffset,
           blockContent,
           blockType
         }];
@@ -636,6 +729,7 @@ export default function StickyView({
         taskId: task.id,
         title: task.title,
         blockId,
+        blockCursorOffset,
         blockContent,
         blockType
       };
@@ -643,10 +737,17 @@ export default function StickyView({
     })());
   };
 
-  const removeBookmark = (taskId: string, blockId?: string) => {
+  const removeBookmark = (taskId: string, blockId?: string, blockCursorOffset?: number) => {
     setBookmarkTip(null);
     onBookmarksChange(bookmarks.filter((bookmark) => {
       if (blockId) {
+        if (typeof blockCursorOffset === "number") {
+          return !(
+            bookmark.taskId === taskId &&
+            bookmark.blockId === blockId &&
+            bookmark.blockCursorOffset === blockCursorOffset
+          );
+        }
         return !(bookmark.taskId === taskId && bookmark.blockId === blockId);
       }
       return !(bookmark.taskId === taskId && !bookmark.blockId);
@@ -664,7 +765,8 @@ export default function StickyView({
     }
     pendingFocusRef.current = {
       taskId: bookmark.taskId,
-      blockId: bookmark.blockId
+      blockId: bookmark.blockId,
+      blockCursorOffset: bookmark.blockCursorOffset
     };
 
     // 如果不在当前页面，先跳转到对应页面
@@ -673,7 +775,7 @@ export default function StickyView({
     } else {
       // 在当前页面，直接滚动到文本块
       if (editor) {
-        const found = scrollToBlock(editor, bookmark.blockId);
+        const found = scrollToBlock(editor, bookmark.blockId, bookmark.blockCursorOffset);
         if (found) {
           pendingFocusRef.current = null;
         }
@@ -725,10 +827,40 @@ export default function StickyView({
 
     // 右键打开菜单时，将编辑器选择同步到鼠标点击位置
     if (editor.view.dom.contains(target)) {
-      const pos = editor.view.posAtCoords({ left: event.clientX, top: event.clientY });
-      if (typeof pos?.pos === "number") {
-        pendingBlockBookmarkPosRef.current = pos.pos;
-        editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, pos.pos)));
+      const candidatePositions: number[] = [];
+      let current: HTMLElement | null = target;
+      while (current && current !== editor.view.dom) {
+        if (current.hasAttribute("data-node-id")) {
+          try {
+            candidatePositions.push(editor.view.posAtDOM(current, 0));
+          } catch {
+            // 忽略不可解析节点，继续向上查找
+          }
+        }
+        current = current.parentElement;
+      }
+
+      let contextPos: number | null = null;
+      for (const candidate of candidatePositions) {
+        const resolved = resolveBlockAnchor(editor.state.doc, candidate);
+        if (resolved) {
+          contextPos = resolved.blockPos;
+          break;
+        }
+      }
+      if (contextPos === null) {
+        const pos = editor.view.posAtCoords({ left: event.clientX, top: event.clientY });
+        if (typeof pos?.pos === "number") {
+          const resolved = resolveBlockAnchor(editor.state.doc, pos.pos);
+          contextPos = resolved ? resolved.blockPos : pos.pos;
+        }
+      }
+
+      if (typeof contextPos === "number") {
+        pendingBlockBookmarkPosRef.current = contextPos;
+        const safePos = Math.max(1, Math.min(editor.state.doc.content.size, contextPos));
+        const normalizedPos = Selection.near(editor.state.doc.resolve(safePos), 1).from;
+        editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, normalizedPos)));
       }
     } else {
       pendingBlockBookmarkPosRef.current = null;
@@ -869,7 +1001,7 @@ export default function StickyView({
           onClick={(event) => event.stopPropagation()}
         >
           {bookmarks.filter((b) => b.blockId).map((bookmark) => (
-            <div key={`${bookmark.taskId}_${bookmark.blockId}`} className="sticky-pending-item">
+            <div key={`${bookmark.taskId}_${bookmark.blockId}_${bookmark.blockCursorOffset ?? "legacy"}`} className="sticky-pending-item">
               <button
                 type="button"
                 className="sticky-pending-content"
@@ -883,7 +1015,7 @@ export default function StickyView({
                 type="button"
                 className="sticky-pending-remove"
                 aria-label="移除"
-                onClick={() => removeBookmark(bookmark.taskId, bookmark.blockId)}
+                onClick={() => removeBookmark(bookmark.taskId, bookmark.blockId, bookmark.blockCursorOffset)}
               >
                 ×
               </button>

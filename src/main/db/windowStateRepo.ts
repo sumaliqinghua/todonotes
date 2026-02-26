@@ -11,13 +11,23 @@ function parseStickyBookmarks(raw: unknown) {
       return [];
     }
     return parsed
-      .filter((item): item is { taskId: string; title: string; blockId?: string; blockContent?: string; blockType?: string } => {
+      .filter((item): item is {
+        taskId: string;
+        title: string;
+        blockId?: string;
+        blockCursorOffset?: number;
+        blockContent?: string;
+        blockType?: string;
+      } => {
         return Boolean(item && typeof item === "object" && typeof (item as any).taskId === "string");
       })
       .map((item) => ({
         taskId: item.taskId,
         title: typeof item.title === "string" ? item.title : "",
         ...(item.blockId && { blockId: item.blockId }),
+        ...(typeof item.blockCursorOffset === "number" &&
+          Number.isFinite(item.blockCursorOffset) &&
+          item.blockCursorOffset > 0 && { blockCursorOffset: Math.floor(item.blockCursorOffset) }),
         ...(item.blockContent && { blockContent: item.blockContent }),
         ...(item.blockType && { blockType: item.blockType })
       }));

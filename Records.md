@@ -380,3 +380,102 @@
   - 本轮仍未补充“安装/打包分发”内容；若后续对外发布，建议新增独立《安装与升级手册》。
 - **关联假设**：
   - `[2026-02-14/用户文档] 使用帮助默认面向“已可打开应用”的终端用户`
+
+## [2026-02-24] M0.13-R13 待处理右键锚点改为记录对应行末
+- **What（做了什么）**：
+  - 为 sticky 待处理条目新增 `blockCursorOffset` 字段，记录右键“添加文本块到待处理”时对应行末偏移。
+  - 点击待处理条目时，定位逻辑从“仅按块末尾”升级为“优先按记录偏移恢复，缺省再块末兜底”。
+  - 同步更新书签反序列化逻辑，确保持久化读写兼容新旧数据。
+- **Why（为什么这么做）**：
+  - 用户反馈当前“添加文本块到待处理”后光标定位记录不准，期望记录并恢复到对应那一行的末尾。
+  - 仅靠 `blockId` 无法表达同一块内部更细粒度位置，导致回跳精度不足。
+- **How（怎么实现的）**：
+  - `src/shared/types.ts`：`WindowBookmark` 新增可选字段 `blockCursorOffset`。
+  - `src/renderer/components/StickyView.tsx`：
+    - `addBlockBookmark` 在解析右键位置后，额外计算“最近文本行末”相对块起始偏移并写入书签。
+    - `handleBlockBookmarkClick` 与挂起定位状态 `pendingFocusRef` 传递该偏移用于回跳。
+    - 待处理条目去重/删除键加入偏移维度，兼容历史无偏移书签。
+  - `src/renderer/utils/blockScroll.ts`：`scrollToBlock` 支持可选偏移参数并执行边界裁剪。
+  - `src/main/db/windowStateRepo.ts`：`parseStickyBookmarks` 增加 `blockCursorOffset` 解析与数值清洗。
+  - 验证：`npm run test` 通过（13/13）；`npx tsc -p tsconfig.main.json --noEmit && npx tsc -p tsconfig.preload.json --noEmit && npx tsc -p tsconfig.renderer.json --noEmit` 通过。
+- **已知限制**：
+  - 当前位置偏移基于当前 ProseMirror 文本块结构计算；若后续引入更复杂内联结构（如跨节点嵌套），可再补充更细粒度锚点策略。
+- **关联假设**：
+  - `[2026-02-24/M0.13-R13] 待处理锚点按“块ID + 行末偏移”记录`
+
+## [2026-02-24] M0.13-R13-hotfix 列表符号/块边界右键锚点偏移修复
+- **What（做了什么）**：
+  - 修复 sticky 在列表符号区或块边界右键“添加文本块到待处理”时的锚点偏移问题。
+  - 记录锚点前新增位置归一化步骤，确保命中最近可编辑文本位置。
+  - 锚点块选择策略改为“优先文本块”，再按文本块行末记录偏移。
+- **Why（为什么这么做）**：
+  - 用户复测反馈仍会跳到“下一行中间”，说明边界命中场景下锚点记录仍不稳定。
+  - 仅使用 `posAtCoords` 原始坐标在结构边界会落到父块节点，导致回跳偏移。
+- **How（怎么实现的）**：
+  - `src/renderer/components/StickyView.tsx`：
+    - 引入 `Selection`，在 `addBlockBookmark` 中使用 `Selection.near(doc.resolve(safeFrom), 1)` 归一化右键位置。
+    - 块解析顺序调整为“先找 `isTextblock`，再找普通 `isBlock` 兜底”。
+    - `blockCursorOffset` 优先按文本块行末计算，避免父块边界偏移。
+  - 验证：`npm run test` 通过（13/13）；`npx tsc -p tsconfig.main.json --noEmit && npx tsc -p tsconfig.preload.json --noEmit && npx tsc -p tsconfig.renderer.json --noEmit` 通过。
+- **已知限制**：
+  - 极少数完全不可编辑区域（例如未来自定义不可选节点）仍可能走块级兜底逻辑，光标将回退到块末尾。
+- **关联假设**：
+  - `[2026-02-24/M0.13-R13-hotfix] 右键边界命中先归一化到最近文本位置`
+
+## [2026-02-24] M0.13-R13-hotfix2 checkbox 行右键锚点 DOM 优先解析
+- **What（做了什么）**：
+  - 修复 checkbox 行（含列表符号区域）右键“添加文本块到待处理”后回跳落到下一行末尾的问题。
+  - 右键命中逻辑升级为“DOM 祖先链优先解析文本块锚点 + 坐标兜底”。
+- **Why（为什么这么做）**：
+  - 用户复测仍出现“当前行添加，下一行落点”的偏移，说明仅靠 `Selection.near` 仍不能覆盖全部边界命中场景。
+  - checkbox 与列表符号区域属于结构边界，DOM 语义节点比坐标命中更稳定。
+- **How（怎么实现的）**：
+  - `src/renderer/components/StickyView.tsx`：
+    - `handleContextMenu` 新增 `data-node-id` 祖先链解析，优先定位文本块对应文档位置。
+    - 当 DOM 无命中时才回退 `posAtCoords`，并统一使用 `Selection.near(..., -1)` 左偏归一化选区。
+    - `addBlockBookmark` 增加对“直接命中块起始位置”的处理，避免边界位置再次漂移。
+  - 验证：`npm run test` 通过（13/13）；`npx tsc -p tsconfig.main.json --noEmit && npx tsc -p tsconfig.preload.json --noEmit && npx tsc -p tsconfig.renderer.json --noEmit` 通过。
+- **已知限制**：
+  - 若未来引入不带 `data-node-id` 的复杂自定义可视节点，仍会走坐标兜底路径。
+- **关联假设**：
+  - `[2026-02-24/M0.13-R13-hotfix2] checkbox 行右键优先走 DOM 锚点解析`
+
+## [2026-02-26] M0.13-R13-hotfix3 容器块命中导致回跳到文末修复
+- **What（做了什么）**：
+  - 修复右键“添加文本块到待处理”后，单击条目回跳到最后一行末尾的问题。
+  - 新增统一锚点解析函数，在容器块命中场景下优先下钻文本块并记录该行行末。
+  - 同步收敛右键取点与待处理记录两条路径，避免两边策略不一致导致漂移。
+- **Why（为什么这么做）**：
+  - 用户反馈“应跳到添加那一行的行末”，当前行为错误地回到了文末，直接影响待处理导航可用性。
+  - 既有逻辑在 `taskItem/taskList` 命中时会记录容器块尾，导致恢复光标偏向结构尾部而非当前文本行。
+- **How（怎么实现的）**：
+  - `src/renderer/components/StickyView.tsx`：
+    - 新增 `resolveBlockAnchor`，统一解析 `rawPos -> blockPos + lineEndPos`。
+    - `handleContextMenu` 改为使用 `resolveBlockAnchor` 解析 DOM 候选位置与 `posAtCoords` 兜底位置，优先得到文本块位置。
+    - `addBlockBookmark` 改为复用 `resolveBlockAnchor`；若命中容器块则先下钻文本块，再记录 `blockCursorOffset`。
+    - 右键同步选区的归一化偏向改为 `Selection.near(..., 1)`，保证命中位置向当前块内部收敛。
+  - 验证：`npm run test` 通过（13/13）；`npx tsc -p tsconfig.main.json --noEmit && npx tsc -p tsconfig.preload.json --noEmit && npx tsc -p tsconfig.renderer.json --noEmit` 通过。
+- **已知限制**：
+  - 当命中节点本身不包含文本块（如纯结构块/未来自定义不可编辑块）时，仍会回退到块级定位。
+- **关联假设**：
+  - `[2026-02-26/M0.13-R13-hotfix3] 容器块锚点优先下钻文本块`
+
+## [2026-02-26] M0.13-R13-hotfix4 重复块ID导致待处理回跳误命中修复
+- **What（做了什么）**：
+  - 修复待处理回跳“命中到更靠后行/最末尾”的问题。
+  - 新增块 ID 重复检测：添加待处理时若目标块 ID 缺失或重复，自动重置当前块为唯一 ID。
+  - 优化回跳查找：命中首个目标后不再被后续同 ID 节点覆盖。
+- **Why（为什么这么做）**：
+  - 用户反馈在“安排solitare”“框架”处添加待处理后，单击仍跳到列表底部，说明当前锚点仍存在误命中。
+  - 回跳链路以 `blockId` 为主键，若编辑器存在重复节点 ID，会导致定位漂移到错误节点。
+- **How（怎么实现的）**：
+  - `src/renderer/components/StickyView.tsx`：
+    - 新增 `countNodeIdOccurrences` 统计文档中某 ID 出现次数。
+    - 在 `addBlockBookmark` 中引入 `shouldResetId` 判断：ID 缺失或重复时，使用事务重置当前块 ID，并以新 ID 写入书签。
+  - `src/renderer/utils/blockScroll.ts`：
+    - `scrollToBlock` 遍历时改为“首次命中即锁定”，不再被后续同 ID 节点覆盖。
+  - 验证：`npm run test` 通过（13/13）；`npx tsc -p tsconfig.main.json --noEmit && npx tsc -p tsconfig.preload.json --noEmit && npx tsc -p tsconfig.renderer.json --noEmit` 通过。
+- **已知限制**：
+  - 历史已保存的旧书签若绑定到重复 ID，仍可能指向旧冲突节点；重新添加该条待处理后会自动修复为唯一 ID。
+- **关联假设**：
+  - `[2026-02-26/M0.13-R13-hotfix4] 待处理锚点写入时优先修复重复块ID`
