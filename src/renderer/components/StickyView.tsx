@@ -101,6 +101,8 @@ export default function StickyView({
   const [pendingPopup, setPendingPopup] = useState<{ x: number; y: number } | null>(null);
   const pendingFocusRef = useRef<{ taskId: string; blockId: string; blockCursorOffset?: number } | null>(null);
   const pendingBlockBookmarkPosRef = useRef<number | null>(null);
+  const pendingRemoteBlocksRef = useRef<any | null>(null);
+  const lastLocalBlocksHashRef = useRef<string | null>(null);
 
   const errorToMessage = (error: unknown, fallback: string) => {
     if (error instanceof Error && error.message) {
@@ -188,7 +190,9 @@ export default function StickyView({
         window.clearTimeout(saveTimer.current);
       }
       saveTimer.current = window.setTimeout(() => {
-        window.api.invoke("task:update", { id: task.id, blocks: editor.getJSON() });
+        const nextBlocks = editor.getJSON();
+        lastLocalBlocksHashRef.current = JSON.stringify(nextBlocks);
+        window.api.invoke("task:update", { id: task.id, blocks: nextBlocks });
       }, 400);
     }
   });
@@ -200,11 +204,51 @@ export default function StickyView({
     const next = (task.blocks as any) ?? { type: "doc", content: [{ type: "paragraph" }] };
     const current = editor.getJSON();
     const taskIdChanged = prevTaskIdRef.current !== task.id;
-    if (taskIdChanged || JSON.stringify(current) !== JSON.stringify(next)) {
+    const currentSerialized = JSON.stringify(current);
+    const nextSerialized = JSON.stringify(next);
+    if (taskIdChanged) {
       editor.commands.setContent(next, false);
+      pendingRemoteBlocksRef.current = null;
+      lastLocalBlocksHashRef.current = nextSerialized;
+    } else if (currentSerialized !== nextSerialized) {
+      // 本地保存回流不应重置光标，直接忽略
+      if (nextSerialized === lastLocalBlocksHashRef.current) {
+        pendingRemoteBlocksRef.current = null;
+      } else if (editor.isFocused) {
+        // 正在输入时先缓存远端内容，等失焦再应用，避免光标跳到文末
+        pendingRemoteBlocksRef.current = next;
+      } else {
+        editor.commands.setContent(next, false);
+        pendingRemoteBlocksRef.current = null;
+        lastLocalBlocksHashRef.current = nextSerialized;
+      }
     }
     prevTaskIdRef.current = task.id;
   }, [editor, task?.id, task?.blocks]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+    const applyPendingRemoteBlocks = () => {
+      const pending = pendingRemoteBlocksRef.current;
+      if (!pending || editor.isFocused) {
+        return;
+      }
+      const current = editor.getJSON();
+      const currentSerialized = JSON.stringify(current);
+      const pendingSerialized = JSON.stringify(pending);
+      if (currentSerialized !== pendingSerialized) {
+        editor.commands.setContent(pending, false);
+      }
+      pendingRemoteBlocksRef.current = null;
+      lastLocalBlocksHashRef.current = pendingSerialized;
+    };
+    editor.on("blur", applyPendingRemoteBlocks);
+    return () => {
+      editor.off("blur", applyPendingRemoteBlocks);
+    };
+  }, [editor]);
 
   useEffect(() => {
     const pending = pendingFocusRef.current;

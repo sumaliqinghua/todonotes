@@ -239,3 +239,11 @@
 - **理由**：回跳依赖 `blockId` 定位，ID 冲突会命中错误节点；写入时修复唯一性可从源头保证定位稳定。
 - **影响范围**：`src/renderer/components/StickyView.tsx` 的待处理新增流程、`src/renderer/utils/blockScroll.ts` 的回跳命中稳定性。
 - **状态**：待确认
+
+## [2026-02-26/M0.13-R13-hotfix5] 输入聚焦期间延迟应用远端块更新
+
+- **背景**：用户反馈输入文本时光标会偶发跳到文档末尾，直接打断连续输入。
+- **假设**：本地保存后 `task:updated` 回流触发 `setContent` 是主要诱因；输入聚焦期间默认不立即应用远端块更新，而是缓存并在失焦后应用。
+- **理由**：`setContent` 会重建文档并重置选区，输入中执行会导致光标跳变；延迟到失焦可兼顾编辑连续性与跨窗口同步。
+- **影响范围**：`src/renderer/components/StickyView.tsx`、`src/renderer/components/TaskDetail.tsx` 的内容同步策略与焦点期行为。
+- **状态**：待确认

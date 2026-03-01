@@ -686,6 +686,26 @@
 
 ---
 
+## M0.13-R13-hotfix5：输入时光标偶发跳到文末修复
+
+### 任务清单
+
+- [x] 执行内容：识别并拦截“本地保存回流”触发的编辑器重设
+  - 验收标准：输入过程中收到同窗口 `task:update` 回流时，不再触发 `setContent` 重置光标
+
+- [x] 执行内容：聚焦输入期间延迟应用远端内容
+  - 验收标准：正在输入时如收到非本地回流更新，不打断输入；失焦后再应用远端内容
+
+- [x] 执行内容：双编辑器（Library/Sticky）一致性修复与回归
+  - 验收标准：`TaskDetail` 与 `StickyView` 同步修复，`npm run test` 与三端 `tsc --noEmit` 通过
+
+- [x] 执行内容：同步文档与假设记录
+  - 验收标准：`PRD.md` / `plan.md` / `Records.md` / `PROJECT_STATUS.md` / `ASSUMPTIONS.md` 已更新
+
+状态：`[x] 已完成`
+
+---
+
 ## M3：Markdown 粘贴解析能力补齐
 
 ### 任务清单

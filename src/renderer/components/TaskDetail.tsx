@@ -70,6 +70,8 @@ export default function TaskDetail({
   const imageHandlers = createImageHandlers(editorRef);
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimer = useRef<number | null>(null);
+  const pendingRemoteBlocksRef = useRef<any | null>(null);
+  const lastLocalBlocksHashRef = useRef<string | null>(null);
 
   const errorToMessage = (error: unknown, fallback: string) => {
     if (error instanceof Error && error.message) {
@@ -155,7 +157,9 @@ export default function TaskDetail({
         window.clearTimeout(blocksTimer.current);
       }
       blocksTimer.current = window.setTimeout(() => {
-        onUpdateBlocks(editor.getJSON());
+        const nextBlocks = editor.getJSON();
+        lastLocalBlocksHashRef.current = JSON.stringify(nextBlocks);
+        onUpdateBlocks(nextBlocks);
       }, 500);
     }
   });
@@ -202,11 +206,51 @@ export default function TaskDetail({
     const next = (task.blocks as any) ?? DEFAULT_BLOCKS;
     const current = editor.getJSON();
     const taskIdChanged = prevTaskIdRef.current !== task.id;
-    if (taskIdChanged || JSON.stringify(current) !== JSON.stringify(next)) {
+    const currentSerialized = JSON.stringify(current);
+    const nextSerialized = JSON.stringify(next);
+    if (taskIdChanged) {
       editor.commands.setContent(next, false);
+      pendingRemoteBlocksRef.current = null;
+      lastLocalBlocksHashRef.current = nextSerialized;
+    } else if (currentSerialized !== nextSerialized) {
+      // 本地保存回流不应打断输入
+      if (nextSerialized === lastLocalBlocksHashRef.current) {
+        pendingRemoteBlocksRef.current = null;
+      } else if (editor.isFocused) {
+        // 输入中遇到远端更新时暂存，失焦后再应用
+        pendingRemoteBlocksRef.current = next;
+      } else {
+        editor.commands.setContent(next, false);
+        pendingRemoteBlocksRef.current = null;
+        lastLocalBlocksHashRef.current = nextSerialized;
+      }
     }
     prevTaskIdRef.current = task.id;
   }, [editor, task?.id, task?.blocks]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+    const applyPendingRemoteBlocks = () => {
+      const pending = pendingRemoteBlocksRef.current;
+      if (!pending || editor.isFocused) {
+        return;
+      }
+      const current = editor.getJSON();
+      const currentSerialized = JSON.stringify(current);
+      const pendingSerialized = JSON.stringify(pending);
+      if (currentSerialized !== pendingSerialized) {
+        editor.commands.setContent(pending, false);
+      }
+      pendingRemoteBlocksRef.current = null;
+      lastLocalBlocksHashRef.current = pendingSerialized;
+    };
+    editor.on("blur", applyPendingRemoteBlocks);
+    return () => {
+      editor.off("blur", applyPendingRemoteBlocks);
+    };
+  }, [editor]);
 
   useEffect(() => {
     editorRef.current = editor ?? null;

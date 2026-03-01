@@ -479,3 +479,23 @@
   - 历史已保存的旧书签若绑定到重复 ID，仍可能指向旧冲突节点；重新添加该条待处理后会自动修复为唯一 ID。
 - **关联假设**：
   - `[2026-02-26/M0.13-R13-hotfix4] 待处理锚点写入时优先修复重复块ID`
+
+## [2026-02-26] M0.13-R13-hotfix5 输入时光标偶发跳到文末修复
+- **What（做了什么）**：
+  - 修复输入过程中光标偶发跳到文档末尾的问题，避免打断连续输入。
+  - 在 `StickyView` 与 `TaskDetail` 统一加入“本地保存回流忽略 + 聚焦期间远端更新延迟应用”机制。
+- **Why（为什么这么做）**：
+  - 用户反馈输入时会频繁出现光标突然跳到文末，属于高频编辑链路稳定性问题。
+  - 现有逻辑在收到 `task:updated` 后会触发 `setContent`，输入聚焦态下会重置选区。
+- **How（怎么实现的）**：
+  - `src/renderer/components/StickyView.tsx`：
+    - 新增 `lastLocalBlocksHashRef`，记录本地发送 `task:update` 的最新块内容哈希。
+    - `task.blocks` 同步时若命中本地回流哈希则跳过 `setContent`。
+    - 聚焦输入期间收到非本地回流更新时写入 `pendingRemoteBlocksRef`，在 `blur` 事件再应用。
+  - `src/renderer/components/TaskDetail.tsx`：
+    - 同步上述策略，保证 Library/Sticky 两个编辑器行为一致。
+  - 验证：`npm run test` 通过（13/13）；`npx tsc -p tsconfig.main.json --noEmit && npx tsc -p tsconfig.preload.json --noEmit && npx tsc -p tsconfig.renderer.json --noEmit` 通过。
+- **已知限制**：
+  - 若用户长期保持聚焦连续输入，远端更新会延后到失焦后再生效。
+- **关联假设**：
+  - `[2026-02-26/M0.13-R13-hotfix5] 输入聚焦期间延迟应用远端块更新`
