@@ -499,3 +499,44 @@
   - 若用户长期保持聚焦连续输入，远端更新会延后到失焦后再生效。
 - **关联假设**：
   - `[2026-02-26/M0.13-R13-hotfix5] 输入聚焦期间延迟应用远端块更新`
+
+## [2026-03-02] M0.13-R14 面包屑/待处理中隐藏已完成与已删除任务
+- **What（做了什么）**：
+  - 调整面包屑兄弟级下拉过滤，新增对已完成任务的排除。
+  - 调整 sticky 书签栏“待处理（n）”的计数与弹层列表，仅展示来源任务未完成且未删除的条目。
+  - 为待处理可见性增加任务更新/删除事件触发的自动重算，避免状态变化后列表不刷新。
+- **Why（为什么这么做）**：
+  - 你要求导航下拉与待处理列表都不再出现“已完成/已删除”项目，减少无效跳转与噪声信息。
+- **How（怎么实现的）**：
+  - `src/renderer/components/Breadcrumb.tsx`：兄弟级列表本地过滤条件补充 `!task.isCompleted`，并继续保留未归档/未删除约束。
+  - `src/renderer/components/StickyView.tsx`：
+    - 新增待处理任务可见性映射（按 `task:get` 查询任务状态并缓存隐藏集合）。
+    - 监听 `task:updated` 与 `task:deleted` 事件触发重算，确保完成/删除后待处理列表自动同步。
+    - 书签栏待处理按钮计数、弹层渲染统一改为基于过滤后的 `pendingBookmarks`。
+  - 验证：`npm run test`、`npx tsc -p tsconfig.main.json --noEmit`、`npx tsc -p tsconfig.preload.json --noEmit`、`npx tsc -p tsconfig.renderer.json --noEmit` 全部通过。
+- **已知限制**：
+  - 待处理条目当前按任务完成/删除状态过滤；若后续希望同步过滤“已归档”任务，需要追加同类规则。
+- **关联假设**：
+  - 无。
+
+## [2026-03-02] M0.13-R15 待处理增加序号并支持拖拽排序
+- **What（做了什么）**：
+  - 为 sticky 待处理弹层每条条目增加序号显示。
+  - 实现待处理条目拖拽排序，拖拽后即时更新显示顺序并写回 `stickyBookmarks`。
+  - 增加拖拽中的视觉反馈（拖动项、目标项高亮）。
+- **Why（为什么这么做）**：
+  - 你要求待处理列表具备更直观的阅读顺序和手动整理能力，便于优先级管理。
+- **How（怎么实现的）**：
+  - `src/renderer/components/StickyView.tsx`：
+    - 新增待处理拖拽状态 `draggingPendingKey` / `dragOverPendingKey`。
+    - 新增 `buildPendingBookmarkKey` 作为待处理条目稳定键值。
+    - 在待处理弹层中为每条记录渲染序号，并接入 `dragstart/dragover/drop/dragend` 事件。
+    - 新增 `reorderPendingBookmarks`，按拖拽结果重排可见待处理条目并通过 `onBookmarksChange` 持久化。
+  - `src/renderer/styles/app.css`：
+    - 新增 `.sticky-pending-index` 样式。
+    - 为 `.sticky-pending-item` 增加拖拽态样式（`is-dragging` / `is-drag-over`）。
+  - 验证：`npm run test`、`npx tsc -p tsconfig.main.json --noEmit`、`npx tsc -p tsconfig.preload.json --noEmit`、`npx tsc -p tsconfig.renderer.json --noEmit` 全部通过。
+- **已知限制**：
+  - 当前拖拽落点按“目标项位置重排”处理；如需“上半区前插/下半区后插”细粒度规则可后续增强。
+- **关联假设**：
+  - 无。
