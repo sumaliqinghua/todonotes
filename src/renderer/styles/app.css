@@ -487,6 +487,10 @@
     border-top: 2px solid rgba(60, 44, 10, 0.45);
   }
 
+  .sticky-pending-item.is-active {
+    background: rgba(60, 44, 10, 0.1);
+  }
+
   .sticky-pending-index {
     @apply flex w-8 shrink-0 items-center justify-center text-[11px] font-semibold text-black/65;
     border-right: 1px solid rgba(60, 44, 10, 0.12);
@@ -519,6 +523,21 @@
 
   .sticky-pending-remove:hover {
     background: rgba(60, 44, 10, 0.08);
+  }
+
+  .sticky-pending-focus-nav {
+    @apply inline-flex items-center gap-1 rounded-md border border-black/20 bg-black/5 px-1 py-0.5 text-[11px];
+  }
+
+  .sticky-pending-focus-btn {
+    @apply rounded-sm px-1 text-black/70 transition hover:bg-black/10 hover:text-black;
+    line-height: 1.1;
+  }
+
+  .sticky-pending-focus-text {
+    @apply px-1 text-black/65;
+    min-width: 70px;
+    text-align: center;
   }
 
   .block-highlight {

@@ -107,6 +107,7 @@ export default function StickyView({
   const [hiddenPendingTaskIds, setHiddenPendingTaskIds] = useState<Record<string, boolean>>({});
   const [draggingPendingKey, setDraggingPendingKey] = useState<string | null>(null);
   const [dragOverPendingKey, setDragOverPendingKey] = useState<string | null>(null);
+  const [activePendingKey, setActivePendingKey] = useState<string | null>(null);
 
   const errorToMessage = (error: unknown, fallback: string) => {
     if (error instanceof Error && error.message) {
@@ -850,15 +851,21 @@ export default function StickyView({
     }));
   };
 
+  const buildPendingBookmarkKey = (bookmark: WindowBookmark) =>
+    `${bookmark.taskId}_${bookmark.blockId ?? "task"}_${bookmark.blockCursorOffset ?? "legacy"}`;
+
   const buildBookmarkLabel = (title: string) => `${(title || "未命名").slice(0, 2)}...`;
 
-  const handleBlockBookmarkClick = (bookmark: WindowBookmark) => {
-    setPendingPopup(null);
+  const focusPendingBookmark = (bookmark: WindowBookmark, options?: { closePopup?: boolean }) => {
+    if (options?.closePopup !== false) {
+      setPendingPopup(null);
+    }
     setBookmarkTip(null);
     bookmarkHoverTaskIdRef.current = null;
     if (!bookmark.blockId) {
       return;
     }
+    setActivePendingKey(buildPendingBookmarkKey(bookmark));
     pendingFocusRef.current = {
       taskId: bookmark.taskId,
       blockId: bookmark.blockId,
@@ -877,6 +884,10 @@ export default function StickyView({
         }
       }
     }
+  };
+
+  const handleBlockBookmarkClick = (bookmark: WindowBookmark) => {
+    focusPendingBookmark(bookmark, { closePopup: true });
   };
 
   const buildBookmarkPathText = (ancestorsChain: Task[], currentTitle: string) => {
@@ -1073,15 +1084,46 @@ export default function StickyView({
     };
   }, [stickyBackground]);
 
+  const taskBookmarks = bookmarks.filter((bookmark) => !bookmark.blockId);
+  const pendingBookmarks = bookmarks.filter((bookmark) => bookmark.blockId && !hiddenPendingTaskIds[bookmark.taskId]);
+  const activePendingIndex = activePendingKey
+    ? pendingBookmarks.findIndex((bookmark) => buildPendingBookmarkKey(bookmark) === activePendingKey)
+    : -1;
+
+  useEffect(() => {
+    if (pendingBookmarks.length === 0) {
+      if (activePendingKey !== null) {
+        setActivePendingKey(null);
+      }
+      return;
+    }
+    if (activePendingKey && pendingBookmarks.some((bookmark) => buildPendingBookmarkKey(bookmark) === activePendingKey)) {
+      return;
+    }
+    setActivePendingKey(buildPendingBookmarkKey(pendingBookmarks[0]));
+  }, [activePendingKey, pendingBookmarks]);
+
+  const focusPendingByDelta = (delta: number) => {
+    if (pendingBookmarks.length === 0) {
+      return;
+    }
+    const keyList = pendingBookmarks.map((bookmark) => buildPendingBookmarkKey(bookmark));
+    const currentIndex = activePendingKey ? keyList.indexOf(activePendingKey) : -1;
+    const nextIndex =
+      currentIndex === -1
+        ? delta >= 0 ? 0 : pendingBookmarks.length - 1
+        : (currentIndex + delta + pendingBookmarks.length) % pendingBookmarks.length;
+    const next = pendingBookmarks[nextIndex];
+    if (!next) {
+      return;
+    }
+    focusPendingBookmark(next, { closePopup: false });
+  };
+
   if (!task) {
     return <div className="flex h-screen items-center justify-center bg-[#f6e8a6] text-[#2b2b2b]">加载中...</div>;
   }
 
-  const buildPendingBookmarkKey = (bookmark: WindowBookmark) =>
-    `${bookmark.taskId}_${bookmark.blockId ?? "task"}_${bookmark.blockCursorOffset ?? "legacy"}`;
-
-  const taskBookmarks = bookmarks.filter((bookmark) => !bookmark.blockId);
-  const pendingBookmarks = bookmarks.filter((bookmark) => bookmark.blockId && !hiddenPendingTaskIds[bookmark.taskId]);
   const reorderPendingBookmarks = (fromKey: string, toKey: string) => {
     if (fromKey === toKey || pendingBookmarks.length <= 1) {
       return;
@@ -1132,10 +1174,11 @@ export default function StickyView({
             const pendingKey = buildPendingBookmarkKey(bookmark);
             const isDragging = draggingPendingKey === pendingKey;
             const isDragOver = dragOverPendingKey === pendingKey && draggingPendingKey !== pendingKey;
+            const isActive = activePendingKey === pendingKey;
             return (
               <div
                 key={pendingKey}
-                className={`sticky-pending-item${isDragging ? " is-dragging" : ""}${isDragOver ? " is-drag-over" : ""}`}
+                className={`sticky-pending-item${isDragging ? " is-dragging" : ""}${isDragOver ? " is-drag-over" : ""}${isActive ? " is-active" : ""}`}
                 draggable
                 onDragStart={(event) => {
                   setDraggingPendingKey(pendingKey);
@@ -1167,23 +1210,23 @@ export default function StickyView({
                 <div className="sticky-pending-index" aria-hidden>
                   {index + 1}
                 </div>
-              <button
-                type="button"
-                className="sticky-pending-content"
-                onClick={() => handleBlockBookmarkClick(bookmark)}
-                title={bookmark.blockContent}
-              >
-                <div className="sticky-pending-text">{bookmark.blockContent}</div>
-                <div className="sticky-pending-meta">{bookmark.title}</div>
-              </button>
-              <button
-                type="button"
-                className="sticky-pending-remove"
-                aria-label="移除"
-                onClick={() => removeBookmark(bookmark.taskId, bookmark.blockId, bookmark.blockCursorOffset)}
-              >
-                ×
-              </button>
+                <button
+                  type="button"
+                  className="sticky-pending-content"
+                  onClick={() => handleBlockBookmarkClick(bookmark)}
+                  title={bookmark.blockContent}
+                >
+                  <div className="sticky-pending-text">{bookmark.blockContent}</div>
+                  <div className="sticky-pending-meta">{bookmark.title}</div>
+                </button>
+                <button
+                  type="button"
+                  className="sticky-pending-remove"
+                  aria-label="移除"
+                  onClick={() => removeBookmark(bookmark.taskId, bookmark.blockId, bookmark.blockCursorOffset)}
+                >
+                  ×
+                </button>
               </div>
             );
           })}
@@ -1354,7 +1397,31 @@ export default function StickyView({
       </div>
       <div className="flex items-center justify-between text-[11px] text-black/50">
         <span>{footerText}</span>
-        <span>⋯</span>
+        {pendingBookmarks.length > 0 ? (
+          <div className="no-drag sticky-pending-focus-nav" aria-label="待处理聚焦跳转">
+            <button
+              type="button"
+              className="sticky-pending-focus-btn"
+              onClick={() => focusPendingByDelta(-1)}
+              title="上一个待处理"
+            >
+              ◀
+            </button>
+            <span className="sticky-pending-focus-text">
+              待处理 {activePendingIndex >= 0 ? activePendingIndex + 1 : 0}/{pendingBookmarks.length}
+            </span>
+            <button
+              type="button"
+              className="sticky-pending-focus-btn"
+              onClick={() => focusPendingByDelta(1)}
+              title="下一个待处理"
+            >
+              ▶
+            </button>
+          </div>
+        ) : (
+          <span>⋯</span>
+        )}
       </div>
     </div>
   );

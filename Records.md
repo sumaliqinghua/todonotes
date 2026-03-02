@@ -540,3 +540,25 @@
   - 当前拖拽落点按“目标项位置重排”处理；如需“上半区前插/下半区后插”细粒度规则可后续增强。
 - **关联假设**：
   - 无。
+
+## [2026-03-02] M0.13-R16 待处理聚焦模式与底部左右跳转
+- **What（做了什么）**：
+  - 新增“待处理聚焦处理”能力：点击待处理条目后记录当前聚焦项，并在编辑器中定位显示对应文本块。
+  - 在 sticky 底部新增左右两个跳转按钮，支持在待处理项间连续切换聚焦。
+  - 在待处理弹层中为当前聚焦项增加高亮样式，提升连续处理时的上下文感知。
+- **Why（为什么这么做）**：
+  - 你希望把待处理条目变成连续处理流，减少反复打开弹层和手动查找目标项的成本。
+- **How（怎么实现的）**：
+  - `src/renderer/components/StickyView.tsx`：
+    - 新增 `activePendingKey` 状态，记录当前聚焦待处理项。
+    - 抽离 `focusPendingBookmark`，统一处理“设置聚焦项 + 当前页定位/跨页跳转定位”。
+    - 新增 `focusPendingByDelta`，底部左/右按钮按当前待处理顺序循环跳转。
+    - 待处理弹层项增加 `is-active` 状态样式标记。
+  - `src/renderer/styles/app.css`：
+    - 新增 `.sticky-pending-item.is-active` 高亮样式。
+    - 新增底部导航样式：`.sticky-pending-focus-nav`、`.sticky-pending-focus-btn`、`.sticky-pending-focus-text`。
+  - 验证：`npm run test`、`npx tsc -p tsconfig.main.json --noEmit`、`npx tsc -p tsconfig.preload.json --noEmit`、`npx tsc -p tsconfig.renderer.json --noEmit` 全部通过。
+- **已知限制**：
+  - 左右按钮当前采用循环跳转（首尾相连）；如需改为边界禁用可后续调整。
+- **关联假设**：
+  - `[2026-03-02/M0.13-R16] 待处理左右跳转默认循环（首尾相连）`
