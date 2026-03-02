@@ -81,6 +81,7 @@
     vertical-align: middle;
     background: rgba(111, 182, 255, 0.1);
     line-height: 1.25;
+    cursor: text;
   }
 
   .task-link-checkbox {
@@ -118,6 +119,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    cursor: pointer;
   }
 
   .task-link-block[data-task-completed="1"] .task-link-title {

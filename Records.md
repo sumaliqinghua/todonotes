@@ -562,3 +562,40 @@
   - 左右按钮当前采用循环跳转（首尾相连）；如需改为边界禁用可后续调整。
 - **关联假设**：
   - `[2026-03-02/M0.13-R16] 待处理左右跳转默认循环（首尾相连）`
+
+## [2026-03-02] M0.13-R17 子任务链接块前置输入光标修复
+- **What（做了什么）**：
+  - 修复子任务链接块难以在前方插入文字的问题。
+  - 调整点击行为为“仅点标题跳转”，并在新增子任务链接时自动补尾随空格。
+- **Why（为什么这么做）**：
+  - 用户反馈无法把光标移动到子任务块前面，导致不能补空格或插入文本，影响高频编辑体验。
+- **How（怎么实现的）**：
+  - `src/renderer/components/TaskDetail.tsx` 与 `src/renderer/components/StickyView.tsx`：
+    - 在 `handleClick` 中新增 `isTitleClick` 判断，仅当点击 `.task-link-title` 时执行 `onNavigate`。
+    - 保留 checkbox 点击切换完成态逻辑不变。
+    - “添加子任务”插入 `taskLink` 时改为插入 `[taskLink, 空格文本]`，确保后续可直接继续输入。
+  - `src/renderer/styles/app.css`：
+    - `task-link-block` 设置为 `cursor: text`，`task-link-title` 设置为 `cursor: pointer`，强化编辑与跳转意图。
+  - 验证：`npm run test` 通过（13/13）；`npx tsc -p tsconfig.renderer.json --noEmit` 通过。
+- **已知限制**：
+  - 链接块边缘点击不再触发跳转，需点击标题文本进入子任务页面。
+- **关联假设**：
+  - 无。
+
+## [2026-03-02] M0.13-R17-hotfix 子任务前置光标键盘与点击落点补丁
+- **What（做了什么）**：
+  - 修复 `taskLink` 前后光标无法通过键盘左右键稳定移动的问题。
+  - 修复编辑器外层容器点击时无条件 `focus()` 抢占光标落点的问题。
+- **Why（为什么这么做）**：
+  - 你反馈上一轮修复后仍无法把光标移动到子任务前，说明仅调整点击跳转范围不足以覆盖真实操作路径。
+- **How（怎么实现的）**：
+  - `src/renderer/components/TaskDetail.tsx` 与 `src/renderer/components/StickyView.tsx`：
+    - 在 `editorProps.handleKeyDown` 中新增 `ArrowLeft/ArrowRight` 对 `taskLink` 的显式处理：
+      - 当选中 `taskLink` 节点（`NodeSelection`）时，左右键直接落到节点前/后文本位置；
+      - 当光标紧邻 `taskLink` 时，左右键可跨过节点并定位到预期位置。
+    - 调整编辑容器 `onClick`：仅当点击目标是容器空白区域时才调用 `focus()`，点击编辑内容不再覆盖原始落点。
+  - 验证：`npm run test` 通过（13/13）；`npx tsc -p tsconfig.renderer.json --noEmit` 通过。
+- **已知限制**：
+  - 对于历史正文里“多个子任务紧贴且无可见空白”的场景，建议先把光标放到任一子任务后，再用 `←` 左移到目标前方插入。
+- **关联假设**：
+  - 无。

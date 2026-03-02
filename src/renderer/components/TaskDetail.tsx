@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
-import { TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
@@ -109,6 +109,39 @@ export default function TaskDetail({
     editorProps: {
       handlePaste: imageHandlers.handlePaste,
       handleDrop: imageHandlers.handleDrop,
+      handleKeyDown: (view, event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+          return false;
+        }
+        const { selection, doc } = view.state;
+        const moveCaret = (pos: number) => {
+          const safePos = Math.max(1, Math.min(doc.content.size, pos));
+          view.dispatch(view.state.tr.setSelection(TextSelection.create(doc, safePos)));
+          return true;
+        };
+        if (selection instanceof NodeSelection && selection.node.type.name === "taskLink") {
+          event.preventDefault();
+          return event.key === "ArrowLeft" ? moveCaret(selection.from) : moveCaret(selection.to);
+        }
+        if (!selection.empty) {
+          return false;
+        }
+        const { $from } = selection;
+        if (event.key === "ArrowLeft") {
+          const nodeBefore = $from.nodeBefore;
+          if (nodeBefore?.type.name === "taskLink") {
+            event.preventDefault();
+            return moveCaret(selection.from - nodeBefore.nodeSize);
+          }
+          return false;
+        }
+        const nodeAfter = $from.nodeAfter;
+        if (nodeAfter?.type.name === "taskLink") {
+          event.preventDefault();
+          return moveCaret(selection.from + nodeAfter.nodeSize);
+        }
+        return false;
+      },
       clipboardTextSerializer: () => "",
       handleDOMEvents: {
         copy: handleCopy
@@ -118,6 +151,7 @@ export default function TaskDetail({
         const linkEl = target?.closest?.(".task-link-block") as HTMLElement | null;
         const taskId = linkEl?.dataset.taskId;
         const isCheckboxClick = Boolean(target?.closest?.(".task-link-checkbox"));
+        const isTitleClick = Boolean(target?.closest?.(".task-link-title"));
         if (taskId && isCheckboxClick) {
           event.preventDefault();
           event.stopPropagation();
@@ -145,7 +179,7 @@ export default function TaskDetail({
           void onToggleLinkedTaskComplete(taskId, !currentCompleted);
           return true;
         }
-        if (taskId) {
+        if (taskId && isTitleClick) {
           onNavigate(taskId, false);
           return true;
         }
@@ -370,10 +404,13 @@ export default function TaskDetail({
       editor
         .chain()
         .focus()
-        .insertContentAt(endPos, {
-          type: "taskLink",
-          attrs: { taskId: created.taskId, title: created.title, isCompleted: created.isCompleted }
-        })
+        .insertContentAt(endPos, [
+          {
+            type: "taskLink",
+            attrs: { taskId: created.taskId, title: created.title, isCompleted: created.isCompleted }
+          },
+          { type: "text", text: " " }
+        ])
         .run();
     } catch (error) {
       console.error("添加子任务失败", error);
@@ -519,9 +556,11 @@ export default function TaskDetail({
       </div>
       <div
         className={`editor-surface scrollbar-hidden cursor-text ${isScrolling ? "scrollbar-visible" : ""}`}
-        onClick={() => {
+        onClick={(event) => {
           onShowMenu(null);
-          editor?.commands.focus();
+          if (event.target === event.currentTarget) {
+            editor?.commands.focus();
+          }
         }}
         onScroll={() => {
           setIsScrolling(true);
