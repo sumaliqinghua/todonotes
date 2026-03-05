@@ -1,5 +1,21 @@
 # 实现记录（Records）
 
+## [2026-03-05] M0.13-R17 便签右键显示/隐藏已打钩 checkbox 文本块
+- **What（做了什么）**：
+  - 在 sticky 右键菜单新增“显示已打钩checkbox文本块 / 隐藏已打钩checkbox文本块”切换项。
+  - 新增便签视图样式开关，关闭时隐藏已打钩的 checkbox 文本块，开启时恢复显示。
+  - 完成回归测试验证（`npm run test` 通过）。
+- **Why（为什么这么做）**：
+  - 便签编辑场景中，已完成项会干扰当前聚焦；提供一键隐藏可提升“只看未完成项”的处理效率。
+- **How（怎么实现的）**：
+  - `src/renderer/components/StickyView.tsx`：新增 `showCheckedCheckboxBlocks` 状态，并在 `handleContextMenu` 菜单项中接入切换动作。
+  - `src/renderer/components/StickyView.tsx`：在便签根容器按状态挂载 `sticky-hide-checked-blocks` 类名。
+  - `src/renderer/styles/app.css`：新增规则，命中 `sticky-hide-checked-blocks` 时隐藏 `taskList` 下 `data-checked="true"` 的项。
+- **已知限制**：
+  - 当前开关为便签窗口内存态，重启窗口后会恢复默认“显示”。
+- **关联假设**：
+  - 无。
+
 ## [2026-02-08] M0.12 子任务交互增强立项与计划落盘
 - **What（做了什么）**：
   - 基于 `Docs/NEW_FEATURES.md` 第 1 节完成执行前澄清，并将决策同步到根目录 `PRD.md`。

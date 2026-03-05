@@ -108,6 +108,7 @@ export default function StickyView({
   const [draggingPendingKey, setDraggingPendingKey] = useState<string | null>(null);
   const [dragOverPendingKey, setDragOverPendingKey] = useState<string | null>(null);
   const [activePendingKey, setActivePendingKey] = useState<string | null>(null);
+  const [showCheckedCheckboxBlocks, setShowCheckedCheckboxBlocks] = useState(true);
 
   const errorToMessage = (error: unknown, fallback: string) => {
     if (error instanceof Error && error.message) {
@@ -1011,6 +1012,10 @@ export default function StickyView({
     }
 
     const linkEl = target.closest(".task-link-block") as HTMLElement | null;
+    const toggleCheckedMenuItem = {
+      label: showCheckedCheckboxBlocks ? "隐藏已打钩checkbox文本块" : "显示已打钩checkbox文本块",
+      action: () => setShowCheckedCheckboxBlocks((prev) => !prev)
+    };
     if (linkEl) {
       const taskId = linkEl.dataset.taskId;
       if (!taskId) {
@@ -1054,6 +1059,7 @@ export default function StickyView({
           }
         });
       }
+      items.push(toggleCheckedMenuItem);
       onShowMenu({ x: event.clientX, y: event.clientY, items });
       return;
     }
@@ -1105,7 +1111,8 @@ export default function StickyView({
                 action: convertSelectionToChild
               }
             ]
-          : [])
+          : []),
+        toggleCheckedMenuItem
       ]
     });
   };
@@ -1190,7 +1197,7 @@ export default function StickyView({
 
   return (
     <div
-      className="sticky-surface flex h-screen flex-col px-3 py-2 text-[#2b2b2b]"
+      className={`sticky-surface flex h-screen flex-col px-3 py-2 text-[#2b2b2b]${showCheckedCheckboxBlocks ? "" : " sticky-hide-checked-blocks"}`}
       style={{ "--sticky-base": stickyBackground } as React.CSSProperties}
       onContextMenu={handleContextMenu}
       onClick={() => setPendingPopup(null)}

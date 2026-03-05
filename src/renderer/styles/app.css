@@ -774,6 +774,10 @@
   color: #2b2b2b;
 }
 
+.sticky-surface.sticky-hide-checked-blocks .ProseMirror ul[data-type="taskList"] li[data-checked="true"] {
+  display: none;
+}
+
 body.skin-panel-body,
 html.skin-panel-root {
   background: transparent;
