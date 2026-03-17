@@ -12,6 +12,7 @@ import HistoryNav from "./HistoryNav";
 import type { ContextMenuState } from "./ContextMenu";
 import { createImageHandlers } from "../utils/editorImages";
 import { handleCopy } from "../utils/editorMarkdown";
+import { HeadingCollapse } from "../utils/headingCollapse";
 import { CollapsibleListItem } from "../utils/listCollapse";
 import { updateTaskItemIndent } from "../utils/taskIndent";
 import { hexToRgba } from "../utils/color";
@@ -139,7 +140,7 @@ export default function StickyView({
     }
   }).configure({ nested: true });
   const editor = useEditor({
-    extensions: [StarterKit.configure({ listItem: false }), CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId],
+    extensions: [StarterKit.configure({ listItem: false }), HeadingCollapse, CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId],
     content: (task?.blocks as any) ?? { type: "doc", content: [{ type: "paragraph" }] },
     editable: true,
     editorProps: {

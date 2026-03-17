@@ -5,9 +5,9 @@
   "main": "dist/main/main.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "concurrently -k \"vite\" \"tsc -w -p tsconfig.main.json\" \"tsc -w -p tsconfig.preload.json\" \"wait-on dist/main/main.js dist/preload/index.js && electron .\"",
+    "dev": "concurrently -k \"vite\" \"tsc -w -p tsconfig.main.json\" \"tsc -w -p tsconfig.preload.json\" \"wait-on tcp:5173 dist/main/main.js dist/preload/index.js && electron .\"",
     "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && vite build && electron-builder",
-    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "postinstall": "electron-builder install-app-deps",
     "lint": "echo 'lint pending'",
     "test": "vitest run"
   },
@@ -20,7 +20,6 @@
     "@tiptap/starter-kit": "^2.1.16",
     "better-sqlite3": "^9.4.5",
     "date-fns": "^3.6.0",
-    "electron": "^28.3.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "uuid": "^9.0.1",
@@ -34,6 +33,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "concurrently": "^8.2.2",
     "@electron/rebuild": "^4.0.3",
+    "electron": "^28.3.1",
     "electron-builder": "^24.13.3",
     "autoprefixer": "^10.4.19",
     "jsdom": "^24.0.0",
@@ -52,6 +52,7 @@
     ],
     "asar": true,
     "mac": {
+      "identity": null,
       "target": "dmg"
     },
     "win": {

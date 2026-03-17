@@ -1,5 +1,224 @@
 # 实现记录（Records）
 
+## [2026-03-17] Build-dev-hotfix 开发环境固定 Vite 端口并等待 renderer ready
+- **What（做了什么）**：
+  - 修改 `vite.config.ts`：
+    - 在 `server` 配置中加入 `strictPort: true`。`strictPort` 的意思是“端口必须就是你指定的这个端口”；如果 `5173` 被占用，Vite 不再自动切到 `5174`，而是直接报错退出。
+  - 修改 `package.json`：
+    - 将 `npm run dev` 中 Electron 启动前的 `wait-on` 条件，从仅等待 `dist/main/main.js` 和 `dist/preload/index.js`，改为同时等待 `tcp:5173`。
+    - 这里的 `wait-on tcp:5173` 意味着：只有当 renderer 开发服务器真的在 `5173` 上可连通时，Electron 才会启动。
+- **Why（为什么这么做）**：
+  - 用户提供的 `npm run dev` 日志已经说明真实问题：
+    - 旧的 Vite 仍占用 `5173`
+    - 新的 Vite 自动切到 `5174`
+    - Electron 主进程仍默认连接 `5173`
+  - 这会导致一个非常隐蔽的假象：你以为自己已经重启了 dev，但 Electron 实际加载的还是旧 renderer，所以新加的标题样式和折叠逻辑完全看不到。
+- **How（怎么实现的）**：
+  - 现在开发链路变成：
+    - `vite` 尝试绑定 `5173`
+    - 如果 `5173` 被占用：直接失败，不再自动跳到别的端口
+    - `wait-on tcp:5173 dist/main/main.js dist/preload/index.js`
+    - 只有三者都 ready，Electron 才启动
+  - 这样 Electron 和 Vite 的目标端口永远一致，不会再出现“renderer 在 5174，Electron 却还在 5173”的错连。
+- **用户须知**：
+  - 以后如果你执行 `npm run dev` 时看到“`5173` 被占用”，这不是坏事，而是保护机制在工作。
+  - 正确处理方式是先结束旧的 dev 进程，再重新执行 `npm run dev`。
+- **已知限制**：
+  - 这次修复解决的是开发环境端口错连，不影响打包产物的加载方式。
+- **关联假设**：
+  - 无。
+
+## [2026-03-17] M0.13-R18-hotfix3 标题折叠真实 DOM 同步修复
+- **What（做了什么）**：
+  - 修改 `src/renderer/utils/headingCollapse.ts`：
+    - 修正 `collectHeadingSections` 的顶层节点位置计算，改用 `doc.descendants` 取 ProseMirror 的真实节点位置，不再使用 `doc.forEach` 的内容偏移。
+    - 新增 `syncHeadingCollapseDom`。这个函数会把当前折叠状态同步到真实 DOM：给标题节点加 `heading-collapsible` 类名和 `data-heading-*` 属性，给折叠范围内的正文块加 `heading-collapsed-content` 类名。
+    - 新增 `clearHeadingDomState`，用于在每次同步前清理旧的标题折叠类名和属性，避免脏状态残留。
+    - 在同步 DOM 前暂停 ProseMirror 的 `domObserver`，同步完成后再恢复，防止编辑器把这些视图层属性变化误判为用户手动修改正文。
+    - 初始化后通过微任务再同步一次，确保首屏标题 DOM 已经挂载后再补齐折叠属性。
+  - 修改 `src/renderer/utils/__tests__/headingCollapse.test.ts`：
+    - 新增真实 DOM 断言：验证标题节点初始化后就带有 `data-heading-collapsible` 和 `data-heading-toggle`。
+    - 新增折叠后真实 DOM 断言：验证折叠范围内的正文块带有 `heading-collapsed-content`。
+- **Why（为什么这么做）**：
+  - 用户贴出的真实 DOM 已经证明标题节点本身是 `h1/h2/h3`，但节点上没有任何折叠相关属性，这说明问题不是“标题没转成功”，而是“折叠装饰没真正落到真实 DOM”。
+  - 进一步排查后发现有两个具体根因：
+    - 第一，初版标题区间位置是用 `doc.forEach` 的内容偏移算的，这个偏移和 ProseMirror 装饰真正需要的节点位置不是一回事。
+    - 第二，仅依赖装饰集合不够稳，必须验证真实 DOM 是否真的带上了折叠属性，所以改成直接同步真实 DOM 类名和 `data-*`。
+- **How（怎么实现的）**：
+  - 当前链路是：
+    - `doc.descendants` 计算标题真实位置 → `collectHeadingSections` 得到标题区间 → `headingCollapseKey` 保存当前窗口内折叠标题 ID → `syncHeadingCollapseDom` 把折叠状态落到真实 DOM → CSS 根据 `heading-collapsible` / `data-heading-toggle` / `heading-collapsed-content` 渲染三角并隐藏正文块
+  - 这里的“真实 DOM”指浏览器开发者工具里能直接看到的那层 HTML 元素，不是只存在于 ProseMirror 内存里的装饰描述对象。
+- **用户须知**：
+  - 这次修复后，你在开发者工具里查看标题节点，应该能直接看到：
+    - `class="heading-collapsible"`
+    - `data-heading-collapsible="true"`
+    - `data-heading-toggle="▾"` 或 `data-heading-toggle="▸"`
+  - 折叠后，被收起范围内的正文块应该会直接带上 `heading-collapsed-content` 类名。
+- **已知限制**：
+  - 当前标题折叠仍依赖标题节点存在 `data-node-id`。已有任务正文一般都满足；若后续导入了没有节点 ID 的外部块，需要先经过当前编辑器一次标准化写回。
+- **关联假设**：
+  - 无。
+
+## [2026-03-17] M0.13-R18-hotfix2 标题样式与折叠入口渲染修复
+- **What（做了什么）**：
+  - 修改 `src/renderer/utils/headingCollapse.ts`：
+    - 去掉原来依赖 `Decoration.widget` 插入的标题折叠按钮节点。
+    - 改为直接给可折叠标题节点输出 `data-heading-id`、`data-heading-toggle`、`data-heading-collapsible`、`data-heading-collapsed` 等属性。
+    - 折叠点击逻辑改为：只要点击发生在标题左侧 22px 的折叠区内，就切换该标题的折叠状态；点击标题正文区域仍然保持普通光标定位行为。
+  - 修改 `src/renderer/styles/app.css`：
+    - 为 `h1~h6` 补充明确的 `font-size`、`font-weight`、`line-height` 和 `margin`，恢复标题层级感。
+    - 将标题折叠三角改为由 `.heading-collapsible::before` 伪元素渲染，直接显示在标题行内部。
+    - 保留列表折叠按钮原有实现，不影响已有列表折叠。
+  - 修改 `src/renderer/utils/__tests__/headingCollapse.test.ts`：
+    - 新增装饰属性测试，验证可折叠标题会带上 `data-heading-toggle` 等属性。
+- **Why（为什么这么做）**：
+  - 用户反馈两个现象同时存在：
+    - 标题看起来几乎和正文一样大，只有行距略有变化。
+    - 看不到标题折叠三角。
+  - 第一个现象的根因是 Tailwind 的基础样式把原生 `h1~h6` 的默认字号和字重重置掉了，所以虽然节点已经是标题，视觉上还是像正文。
+  - 第二个现象说明“额外插入按钮节点”的方案在真实编辑器 DOM 里不够稳。把三角直接交给标题节点自己渲染，会比额外插 widget 更可控。
+- **How（怎么实现的）**：
+  - 新的渲染链路是：
+    - `HeadingCollapse` 判断哪些标题可以折叠
+    - 给这些标题节点加 `data-heading-*` 属性
+    - CSS 根据 `data-heading-toggle` 用 `::before` 渲染 `▾ / ▸`
+    - 用户点击标题左侧折叠区 → `mousedown` 逻辑判断点击坐标是否在折叠区 → 命中后切换折叠状态
+  - 这样折叠入口不再依赖“插入一个独立 DOM 节点到标题内部”，而是完全附着在标题元素本身。
+- **用户须知**：
+  - 现在标题应该和正文有明显区别：
+    - 一级标题最大
+    - 往下级别越小
+    - 标题字重会明显比正文更重
+  - 只要这个标题后面有可折叠内容，标题左侧就会直接显示三角，不需要再猜按钮是不是被裁掉了。
+- **已知限制**：
+  - 当前折叠入口仍然只支持鼠标点击标题左侧折叠区，不支持单独的键盘折叠快捷键。
+- **关联假设**：
+  - 无。
+
+## [2026-03-16] M0.13-R18-hotfix 标题折叠按钮可见性修复
+- **What（做了什么）**：
+  - 修改 `src/renderer/utils/headingCollapse.ts`：
+    - 给可折叠标题节点额外加上 `heading-collapsible` 类名。这个类名的作用是告诉样式层“这行标题需要为折叠按钮预留空间”。
+  - 修改 `src/renderer/styles/app.css`：
+    - 保持列表折叠按钮继续使用左侧负偏移。
+    - 将标题折叠按钮 `.heading-toggle` 改为显示在标题行内部左侧，不再放到编辑区外侧。
+    - 给 `heading-collapsible` 标题增加左内边距，避免按钮和标题文字重叠。
+    - 给标题折叠按钮增加边框和浅色背景，让入口比初版更明显。
+  - 修改 `Docs/用户指南.md`：
+    - 补充标题创建方式，明确 `## ` 需要“井号后再按空格”才会转换成标题。
+    - 补充标题快捷键平台差异：mac 使用 `Cmd + Alt + 数字`，Windows / Linux 使用 `Ctrl + Alt + 数字`。
+- **Why（为什么这么做）**：
+  - 初版标题折叠按钮和列表折叠按钮共用“左侧负偏移”定位。列表项本身有缩进，所以按钮仍在可视区；标题是顶格显示，按钮会被编辑区左边界裁切，导致你虽然已经创建了标题，也看不到折叠入口。
+  - 用户同时反馈了 `##` 和 `Ctrl + Alt + 2` 不明显生效，所以这次顺手把“标题创建方式”和“不同系统的快捷键差异”补进文档，减少误判。
+- **How（怎么实现的）**：
+  - 数据流保持不变，仍然是 `HeadingCollapse` 负责判断哪些标题可折叠。
+  - 视图层改为：
+    - `HeadingCollapse` 给可折叠标题加 `heading-collapsible`
+    - CSS 给这些标题预留左边距
+    - `.heading-toggle` 放到标题行内部左边缘
+  - 这样标题按钮不再依赖“跑到块外面显示”，也就不会被滚动容器裁掉。
+- **用户须知**：
+  - 现在只要这一行真的是标题，并且后面有内容可折叠，标题行左边内部就能看到更明显的小三角。
+  - 如果你想把一行变成二级标题，正确方式有两种：
+    - 在行首输入 `## ` 后再输入标题文字，注意是“两个井号后面再按空格”。
+    - mac 用 `Cmd + Alt + 2`，Windows / Linux 用 `Ctrl + Alt + 2`。
+- **已知限制**：
+  - 这次修复只解决“按钮可见性”和“标题创建说明”问题，不改变折叠范围和临时状态规则。
+- **关联假设**：
+  - 无。
+
+## [2026-03-16] M0.13-R18 正文标题折叠（当前窗口临时态）
+- **What（做了什么）**：
+  - 新增 `src/renderer/utils/headingCollapse.ts`：
+    - 新增 `HeadingCollapse` 扩展。`HeadingCollapse` 是一个 Tiptap 编辑器扩展，用来给标题渲染折叠按钮并维护折叠状态。
+    - 新增 `collectHeadingSections` 函数。这个函数会扫描正文顶层块，找出每个“可折叠标题”的范围。这里的“可折叠标题”指标题后面确实还有内容，且范围截止到“下一个同级标题”或“更高级标题”为止。
+    - 新增 `headingCollapseKey`。`headingCollapseKey` 是 ProseMirror 插件键，用来读取和维护当前编辑器实例中的折叠标题 ID 集合；因为状态放在插件里，所以只在当前窗口内存里生效，不会写入任务正文 JSON。
+    - 新增 `toggleHeadingCollapsed` 函数。这个函数通过 transaction meta 切换某个标题 ID 的折叠状态。
+  - 修改 `src/renderer/components/TaskDetail.tsx`：
+    - 在详情页正文编辑器扩展列表中接入 `HeadingCollapse`，让 `Library` 详情页支持标题折叠。
+  - 修改 `src/renderer/components/StickyView.tsx`：
+    - 在便签正文编辑器扩展列表中接入 `HeadingCollapse`，让 `Sticky` 支持同样的标题折叠行为。
+  - 修改 `src/renderer/styles/app.css`：
+    - 将现有列表折叠按钮样式复用到标题折叠按钮，新增 `.heading-toggle` 的定位和 hover 样式。
+    - 给 `.ProseMirror h1` 到 `.ProseMirror h6` 增加相对定位，保证左侧按钮能稳定挂在标题行旁边。
+    - 新增 `.heading-collapsed-content` 规则，被标题折叠命中的正文块会加上这个类并被隐藏。
+  - 新增 `src/renderer/utils/__tests__/headingCollapse.test.ts`：
+    - 补充标题范围计算测试，验证折叠会在下一个同级标题前停止。
+    - 补充空标题区间测试，验证“没有正文可收起的标题”不会显示折叠能力。
+    - 补充会话态切换测试，验证折叠状态只存在于当前编辑器实例。
+- **Why（为什么这么做）**：
+  - 用户的问题是“便签内容写多后不方便查看”，目标不是隐藏单个 checklist，而是让长笔记能像文档目录一样按标题收起。
+  - 这次选择“标题折叠”而不是“任意范围折叠块”，因为标题天然已经是笔记结构边界，实现更轻，学习成本也更低。
+  - 这次选择“当前窗口临时态”而不是写入 `blocks`，因为你已经明确要求不跨窗口、不跨重启持久化；这样也避免为一项纯视图交互改动正文 schema 或同步链路。
+- **How（怎么实现的）**：
+  - 核心数据流是：
+    - 编辑器文档 `doc` → `collectHeadingSections` 计算标题区间 → `HeadingCollapse` 根据区间渲染按钮和隐藏装饰 → 用户点击左侧小三角 → `toggleHeadingCollapsed` 写入 plugin meta → `headingCollapseKey` 更新当前窗口内存态 → 编辑器重新渲染对应区间
+  - 这里的“区间”是按顶层正文块计算的：
+    - 从某个标题开始
+    - 向后扫描所有顶层块
+    - 遇到下一个同级标题或更高级标题就停止
+    - 停止点之前的段落、列表、待办、图片、代码块、低级标题等都属于当前标题的可折叠内容
+  - 关键技术决策点：
+    - 不给标题节点新增 `collapsed` 属性。`collapsed` 是“是否已折叠”的状态，如果写到节点属性里，就会进入 `blocks` 持久化数据，和“当前窗口临时态”的要求冲突。
+    - 改用 ProseMirror plugin state 保存折叠集合。plugin state 是编辑器实例的内存状态，窗口关闭后自然消失，正好符合需求。
+    - 用 decoration 隐藏区间内容。decoration 是 ProseMirror 的“视图装饰”，可以在不改正文内容的前提下给节点追加按钮、类名和属性，很适合这种纯显示层功能。
+- **用户须知**：
+  - 现在 `Library` 详情页和 `Sticky` 正文都支持标题折叠，两边行为一致。
+  - 折叠入口是标题左侧的小三角：
+    - `▾` 表示当前展开，点击后会收起
+    - `▸` 表示当前收起，点击后会展开
+  - 只有存在可折叠内容的标题才会显示按钮；如果标题后面立刻就是同级标题，或者标题已经在文末且后面没有内容，就不会显示按钮。
+  - 折叠范围不是“只折叠下一段”，而是“从当前标题后开始，一直到下一个同级标题或更高级标题前”为止。
+- **已知限制**：
+  - 当前只支持“标题区间折叠”，不支持“从任意正文块开始，自定义一个折叠范围”。
+  - 当前折叠状态不跨窗口共享，也不会在重开应用后恢复。
+  - 当前区间计算按正文顶层块进行，不是代码编辑器那种“任意语法块折叠”。
+- **关联假设**：
+  - `[2026-03-16/M0.13-R18] 仅对存在可折叠正文范围的标题显示折叠按钮`
+
+## [2026-03-16] Build-mac mac 应用打包链路修复
+- **What（做了什么）**：
+  - 修改 `package.json`：
+    - 将 `electron` 从 `dependencies` 移到 `devDependencies`。`dependencies` 是应用运行时要被打进产物的依赖区，`devDependencies` 是开发和构建阶段使用的依赖区；`electron-builder` 要求 `electron` 必须放在后者，否则会直接拒绝打包。
+    - 将 `scripts.postinstall` 从 `electron-rebuild -f -w better-sqlite3` 改为 `electron-builder install-app-deps`。前者是手动重建指定原生模块，后者是 `electron-builder` 官方推荐的原生依赖准备命令，会按当前 Electron 版本自动处理 `better-sqlite3` 这类本地二进制模块。
+    - 在 `build.mac` 下新增 `identity: null`。`identity` 是 mac 代码签名身份配置；设置为 `null` 表示本地构建时显式跳过签名，避免误用开发证书导致 `codesign` 失败。
+  - 更新 `package-lock.json`：
+    - 由 `npm install` 同步锁文件，使 `electron` 的依赖归类与 `package.json` 一致。
+    - 重新执行 `postinstall`，验证 `better-sqlite3` 已按 Electron `28.3.3` 的 `darwin arm64` 目标安装预编译二进制。
+  - 验证构建产物：
+    - 执行 `npm run build`，成功生成 `dist/mac-arm64/Notes.app`。
+    - 执行 `npm run build`，成功生成 `dist/Notes-0.1.0-arm64.dmg` 与 `dist/Notes-0.1.0-arm64.dmg.blockmap`。
+- **Why（为什么这么做）**：
+  - 原始失败点有两个：
+    - 第一层失败是 `electron` 所在依赖区块错误，`electron-builder` 直接报错并中断。
+    - 第二层失败是 mac 签名阶段自动选中了本机 `Apple Development` 证书，但该证书类型不能用于当前 distribution 签名。
+  - 这次选择的方案是“先保证本地可构建、可启动”：
+    - 不引入新的打包工具，不改 Electron 主进程、预加载脚本、前端构建链路。
+    - 不强行接入 Apple 签名与 notarization（公证）流程，因为这已经超出“本机直接启动应用”的目标边界。
+- **How（怎么实现的）**：
+  - 构建链路现在是：
+    - `npm install` → `electron-builder install-app-deps` → 为 `better-sqlite3` 准备匹配 Electron ABI 的原生二进制
+    - `npm run build` → `tsc -p tsconfig.main.json` 编译主进程 → `tsc -p tsconfig.preload.json` 编译预加载脚本 → `vite build` 构建渲染层 → `electron-builder` 打包 mac 应用
+    - `electron-builder` → 跳过 mac 签名（`identity: null`）→ 产出 `Notes.app` → 产出 `Notes-0.1.0-arm64.dmg`
+  - 关键技术决策点：
+    - 依赖归类修正：这是让 `electron-builder` 继续执行的前置条件。
+    - 原生模块安装命令切换：这是保证 `better-sqlite3` 在 Electron 运行时不因 ABI 不匹配而崩溃的关键。
+    - 显式关闭签名：这是让本地开发构建不受钥匙串证书状态影响的关键。
+- **用户须知**：
+  - 现在项目已经可以在当前 mac（`arm64`）上生成本地可启动应用。
+  - 当前生成的是“未签名本地包”，适合开发机自用、测试机本地验证，不等同于“可直接对外分发给普通用户的正式发布包”。
+  - `build.mac.target` 当前是 `dmg`，它表示生成 mac 安装镜像文件；安装镜像里包含 `Notes.app`。如果后续想要只产出 `.app` 目录、不生成 `.dmg`，需要调整这个 `target` 配置。
+  - `identity` 常见取值场景：
+    - `null`：跳过签名，适合本地开发构建。
+    - 自动发现证书（不写或交给环境变量控制）：适合本机已正确配置正式签名证书的发布构建。
+    - `"-"`：ad-hoc 签名，适合部分需要“有签名但不是正式开发者签名”的场景。
+- **已知限制**：
+  - `package.json` 仍缺少 `description` 和 `author`，当前只是告警，不影响打包成功。
+  - 项目当前没有自定义 mac 图标文件（如 `build/icon.icns`），所以打包产物会使用 Electron 默认图标。
+  - `@electron/rebuild` 现在仍保留在 `devDependencies`，`electron-builder` 会提示它不是必须项，但这不影响当前构建；后续可再清理。
+- **关联假设**：
+  - `[2026-03-16/Build-mac] 本地 mac 构建默认不做代码签名`
+
 ## [2026-03-05] M0.13-R17 便签右键显示/隐藏已打钩 checkbox 文本块
 - **What（做了什么）**：
   - 在 sticky 右键菜单新增“显示已打钩checkbox文本块 / 隐藏已打钩checkbox文本块”切换项。

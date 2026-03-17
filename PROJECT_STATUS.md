@@ -1,7 +1,13 @@
-# 项目现状（最后更新：2026-03-05）
+# 项目现状（最后更新：2026-03-16）
 
 ## 项目概述
+- 当前已完成 Build-mac：Electron mac 打包链路修复，仓库现可生成本地可启动的 `Notes.app` 与 `Notes-0.1.0-arm64.dmg`。
+- 当前已完成 Build-dev-hotfix：开发环境固定 Vite 端口为 `5173` 且 Electron 启动前等待 renderer ready，避免误连旧 renderer。
 - 当前已进入 M0.13：1.4~1.7 首轮能力已落地（链接恢复、树拖拽改层级、引用移动、一键归档已完成子任务）。
+- 当前已完成 M0.13-R18：正文标题支持按标题层级折叠，折叠状态仅在当前窗口临时生效。
+- 当前已完成 M0.13-R18-hotfix：标题折叠按钮改为显示在标题行内部，修复顶格标题看不到折叠入口的问题。
+- 当前已完成 M0.13-R18-hotfix2：标题折叠入口改为由标题自身伪元素渲染，并补齐 h1~h6 标题层级样式。
+- 当前已完成 M0.13-R18-hotfix3：标题折叠改为同步真实 DOM 类名与 `data-*` 属性，修复“逻辑存在但标题 DOM 上没有三角入口”的问题。
 - 当前已完成 M0.13-R1：插入已有子任务改为顶部下拉选择，归档入口迁移到任务树右键菜单。
 - 当前已完成 M0.13-R2：兄弟级下拉不再展示已删除/已归档任务。
 - 当前已完成 M0.13-R3：sticky 插入已有子任务入口迁移到右键菜单，且候选仅显示未被正文引用的子任务。
@@ -70,6 +76,13 @@
   - 任务树支持拖拽改层级（拖到节点成为子级，拖到空白区成为根级）
   - `taskLink` 支持“移动到...”，更新父子边关系并同步迁移原/目标正文链接
   - 详情页与便签均支持“一键归档已完成子任务”，归档后自动移除父正文链接块
+- 正文标题折叠（M0.13-R18）：
+  - `Library` 详情页与 `Sticky` 便签正文中的标题左侧新增小三角折叠按钮
+  - 折叠范围为“当前标题之后，到下一个同级标题或更高级标题之前”的所有正文块
+  - 折叠状态仅保留在当前编辑器窗口内，不写入 `blocks`，重开窗口后恢复默认展开
+  - 已修复标题按钮初版被编辑区左边界裁切的问题，当前按钮显示在标题行内部
+  - 已改为由标题节点自身渲染折叠三角，并补齐标题字号/字重/间距，避免标题看起来像普通正文
+  - 已修复标题 DOM 未真实挂载折叠属性的问题，当前真实 DOM 会同步 `heading-collapsible` 与 `data-heading-*`
 - 交互优化修订（M0.13-R1）：
   - “插入已有子任务链接”在任务详情页与便签页均改为顶部下拉选择（视觉风格与面包屑下拉一致）
   - 任务详情页顶部移除“归档已完成子任务”按钮
@@ -146,19 +159,28 @@
   - 文档内容与当前实现入口对齐（Library 顶部下拉插入、Sticky 右键插入、任务树四 Tab、同父重名规则）
 
 ## 当前进度
+- 已完成：Build-mac（Electron mac 打包链路修复，本地可产出未签名 `Notes.app` / `Notes-0.1.0-arm64.dmg`）。
+- 已完成：Build-dev-hotfix（开发模式固定 `5173`，并要求 Electron 启动前等待 renderer 端口 ready）。
 - 已完成：M0 ~ M0.11。
 - 已完成：M0.12（子任务交互增强 #1.1~1.3）、M0.12-R1（完成态实时同步修复）、M0.12-R2（重命名样式保留修复）、M0.12-R3（checkbox 视觉统一）、M0.12-R4（便签根任务书签可移除）。
-- 已完成：M0.13（`Docs/NEW_FEATURES.md` #1.4~1.7）及 R1/R2/R3/R4/R5/R6/R7/R8/R9/R10/R11/R12/R13/R13-hotfix/R13-hotfix2/R13-hotfix3/R13-hotfix4/R13-hotfix5/R14/R15/R16/R17/R17-hotfix 交互优化与 R5 hotfix，以及 M0.13-Docs 用户文档完善。
+- 已完成：M0.13（`Docs/NEW_FEATURES.md` #1.4~1.7）及 R1/R2/R3/R4/R5/R6/R7/R8/R9/R10/R11/R12/R13/R13-hotfix/R13-hotfix2/R13-hotfix3/R13-hotfix4/R13-hotfix5/R14/R15/R16/R17/R17-hotfix/R18/R18-hotfix/R18-hotfix2/R18-hotfix3 交互优化与 R5 hotfix，以及 M0.13-Docs 用户文档完善。
 - 待开始：M1 ~ M4。
 
 ## 已知问题 & 技术债
+- mac 打包当前默认 `identity: null`，仅适合本地开发构建；若要正式分发，还需接入 Apple Developer 签名证书与可能的 notarization（公证）流程。
+- mac 安装包当前未配置自定义应用图标，打包时会回退到 Electron 默认图标。
 - markdown checkbox 关联为“标题完全匹配”；复杂文本或模糊匹配场景未覆盖。
 - 任务树当前仅提供纵向滚动；超长标题仍按截断显示，不支持横向滚动查看全文。
 - 右键子任务列表当前为“单菜单折叠展开”，非悬浮级联子菜单。
 - 独立菜单窗口当前仅覆盖 sticky 场景，library 侧仍为页面内右键菜单。
 - 树拖拽当前不支持同级精确排序，仅支持层级变更（子级/根级）。
+- 标题折叠当前只按顶层正文标题区间生效，不支持“任意块范围折叠”或把折叠状态跨窗口/重启持久化。
 
 ## 关键配置 & 环境信息
 - 包管理：npm（含 `npm run dev` / `npm run test`）。
+- 开发启动：`npm run dev` 现在要求 Vite 绑定 `5173` 成功且 `tcp:5173` ready 后才会启动 Electron；若 `5173` 已被占用，Vite 会直接报错退出，而不会再切到 `5174`。
+- 桌面打包：`npm run build` 会依次执行 TypeScript 主进程编译、TypeScript 预加载脚本编译、Vite 渲染层构建、`electron-builder` 打包。
+- mac 打包目标：`package.json > build.mac.target = "dmg"`，当前默认跳过签名（`package.json > build.mac.identity = null`），可生成 `dist/mac-arm64/Notes.app` 与 `dist/Notes-0.1.0-arm64.dmg`。
+- 原生依赖安装：`postinstall` 使用 `electron-builder install-app-deps`，用于让 `better-sqlite3` 等原生模块匹配当前 Electron 版本。
 - 主要本地数据：SQLite（`tasks`、`edges`、`window_states`、`tasks_fts`）。
 - IPC 关键事件：`task:updated`、`task:deleted`、`window:settings-updated`、`window:sticky-shared-updated`。
