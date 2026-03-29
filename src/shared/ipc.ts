@@ -1,6 +1,7 @@
 import type {
   Attachment,
   AttachmentAddInput,
+  PriorityBlock,
   Reminder,
   ReminderCreateInput,
   SearchOptions,
@@ -29,6 +30,7 @@ export interface IpcInvokeMap {
   "task:insertExistingChildLink": (input: { parentId: string; childId: string }) => Task;
   "task:moveChildReference": (input: { sourceParentId: string; targetParentId: string; childId: string }) => Task;
   "task:archiveCompletedChildren": (input: { parentId: string }) => { archivedIds: string[] };
+  "task:getPriorityBlocks": () => PriorityBlock[];
 
   "edge:create": (input: { parentId: string; childId: string }) => void;
   "edge:delete": (input: { parentId: string; childId: string }) => void;

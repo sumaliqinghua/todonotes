@@ -98,3 +98,11 @@ export interface AttachmentAddInput {
   filePath: string;
   originalName: string;
 }
+
+export interface PriorityBlock {
+  taskId: string;
+  taskTitle: string;
+  blockId: string;
+  priority: number;
+  text: string;
+}

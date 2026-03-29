@@ -11,12 +11,14 @@ import HistoryNav from "./HistoryNav";
 import { TaskLinkNode } from "./TaskLinkNode";
 import type { ContextMenuState } from "./ContextMenu";
 import TaskPickerDropdown from "./TaskPickerDropdown";
+import PriorityDropdown from "./PriorityDropdown";
 import { createImageHandlers } from "../utils/editorImages";
 import { handleCopy } from "../utils/editorMarkdown";
 import { HeadingCollapse } from "../utils/headingCollapse";
 import { CollapsibleListItem } from "../utils/listCollapse";
 import { updateTaskItemIndent } from "../utils/taskIndent";
 import { UniqueId } from "../utils/nodeId";
+import { Priority } from "../utils/priorityExtension";
 
 const DEFAULT_BLOCKS = {
   type: "doc",
@@ -105,7 +107,7 @@ export default function TaskDetail({
   }).configure({ nested: true });
 
   const editor = useEditor({
-    extensions: [StarterKit.configure({ listItem: false }), HeadingCollapse, CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId],
+    extensions: [StarterKit.configure({ listItem: false }), HeadingCollapse, CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId, Priority],
     content: (task?.blocks as any) ?? DEFAULT_BLOCKS,
     editorProps: {
       handlePaste: imageHandlers.handlePaste,
@@ -323,6 +325,29 @@ export default function TaskDetail({
   }, [editor, task?.id]);
 
   useEffect(() => {
+    const handleScrollToBlock = (event: Event) => {
+      if (!editor || !task) return;
+      const customEvent = event as CustomEvent<string>;
+      const blockId = customEvent.detail;
+      if (!blockId) return;
+
+      setTimeout(() => {
+        const blockElement = editor.view.dom.querySelector(`[data-node-id="${blockId}"]`);
+        if (blockElement) {
+          blockElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          blockElement.classList.add('bg-blue-50', 'dark:bg-blue-900/30', 'transition-colors', 'duration-500');
+          setTimeout(() => {
+            blockElement.classList.remove('bg-blue-50', 'dark:bg-blue-900/30');
+          }, 2000);
+        }
+      }, 300); // Give enough time for rendering and initialization
+    };
+
+    window.addEventListener('scroll-to-block', handleScrollToBlock);
+    return () => window.removeEventListener('scroll-to-block', handleScrollToBlock);
+  }, [editor, task?.id]);
+
+  useEffect(() => {
     return () => {
       if (blocksTimer.current) {
         window.clearTimeout(blocksTimer.current);
@@ -447,6 +472,35 @@ export default function TaskDetail({
           action: () => {
             void onMoveChildReference(taskId);
           }
+        },
+        {
+          label: "优先级",
+          children: [
+            {
+              label: "高",
+              action: () => {
+                editor.chain().focus().updateAttributes("taskLink", { priority: "high" }).run();
+              }
+            },
+            {
+              label: "中",
+              action: () => {
+                editor.chain().focus().updateAttributes("taskLink", { priority: "medium" }).run();
+              }
+            },
+            {
+              label: "低",
+              action: () => {
+                editor.chain().focus().updateAttributes("taskLink", { priority: "low" }).run();
+              }
+            },
+            {
+              label: "无",
+              action: () => {
+                editor.chain().focus().updateAttributes("taskLink", { priority: null }).run();
+              }
+            }
+          ]
         }
       ];
       if (node) {
@@ -473,6 +527,47 @@ export default function TaskDetail({
     const { from, to, $from, $to } = state.selection;
     const rawText = state.doc.textBetween(from, to, "\n").trim();
     const canConvert = $from.sameParent($to) && !rawText.includes("\n");
+
+    // determine current node type for priority
+    const currentNode = $from.parent;
+    let nodeName = currentNode.type.name;
+    // taskItem wrapper is actual item, but sometimes selection is in paragraph inside taskItem
+    if (nodeName === "paragraph" && $from.node(-1)?.type.name === "taskItem") {
+      nodeName = "taskItem";
+    } else if (nodeName === "paragraph" && $from.node(-1)?.type.name === "listItem") {
+      nodeName = "listItem";
+    }
+
+    const priorityMenuItem = {
+      label: "优先级",
+      children: [
+        {
+          label: "高",
+          action: () => {
+            editor.chain().focus().updateAttributes(nodeName, { priority: "high" }).run();
+          }
+        },
+        {
+          label: "中",
+          action: () => {
+            editor.chain().focus().updateAttributes(nodeName, { priority: "medium" }).run();
+          }
+        },
+        {
+          label: "低",
+          action: () => {
+            editor.chain().focus().updateAttributes(nodeName, { priority: "low" }).run();
+          }
+        },
+        {
+          label: "无",
+          action: () => {
+            editor.chain().focus().updateAttributes(nodeName, { priority: null }).run();
+          }
+        }
+      ]
+    };
+
     onShowMenu({
       x: event.clientX,
       y: event.clientY,
@@ -490,7 +585,8 @@ export default function TaskDetail({
                 action: convertSelectionToChild
               }
             ]
-          : [])
+          : []),
+        priorityMenuItem
       ]
     });
   };
@@ -535,13 +631,16 @@ export default function TaskDetail({
             {title}
           </div>
         )}
-        <TaskPickerDropdown
-          variant="dark"
-          loadTasks={onLoadInsertableChildren}
-          onSelectTask={async (selected) => {
-            await onInsertExistingChildLink(selected.id);
-          }}
-        />
+        <div className="flex items-center gap-2">
+          <PriorityDropdown editor={editor} variant="dark" onNavigate={onNavigate} currentTaskId={task.id} />
+          <TaskPickerDropdown
+            variant="dark"
+            loadTasks={onLoadInsertableChildren}
+            onSelectTask={async (selected) => {
+              await onInsertExistingChildLink(selected.id);
+            }}
+          />
+        </div>
       </div>
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
