@@ -22,10 +22,10 @@ describe("headingCollapse", () => {
     `);
 
     const sections = collectHeadingSections(editor.state.doc);
-    expect(sections.map(({ headingId, headingLevel }) => ({ headingId, headingLevel }))).toEqual([
-      { headingId: "heading-a", headingLevel: 2 },
-      { headingId: "heading-b", headingLevel: 3 },
-      { headingId: "heading-c", headingLevel: 2 }
+    expect(sections.map(({ headingKey, headingId, headingLevel }) => ({ headingKey, headingId, headingLevel }))).toEqual([
+      { headingKey: "heading-a", headingId: "heading-a", headingLevel: 2 },
+      { headingKey: "heading-b", headingId: "heading-b", headingLevel: 3 },
+      { headingKey: "heading-c", headingId: "heading-c", headingLevel: 2 }
     ]);
     expect(sections[0].contentPositions).toHaveLength(3);
     expect(sections[1].contentPositions).toHaveLength(1);
@@ -89,6 +89,30 @@ describe("headingCollapse", () => {
 
     editor.destroy();
     host.remove();
+  });
+
+  it("distinguishes headings that accidentally share the same node id", () => {
+    const editor = createEditor(`
+      <h2 data-node-id="dup-heading">标题 A</h2>
+      <p>内容 A</p>
+      <h2 data-node-id="dup-heading">标题 B</h2>
+      <p>内容 B</p>
+    `);
+
+    const sections = collectHeadingSections(editor.state.doc);
+    expect(sections.map((section) => section.headingKey)).toEqual(["dup-heading", "dup-heading#1"]);
+
+    editor.view.dispatch(toggleHeadingCollapsed(editor.state, "dup-heading"));
+    const collapsedAfterFirstToggle = headingCollapseKey.getState(editor.state) ?? new Set<string>();
+    expect(collapsedAfterFirstToggle.has("dup-heading")).toBe(true);
+    expect(collapsedAfterFirstToggle.has("dup-heading#1")).toBe(false);
+
+    editor.view.dispatch(toggleHeadingCollapsed(editor.state, "dup-heading#1"));
+    const collapsedAfterSecondToggle = headingCollapseKey.getState(editor.state) ?? new Set<string>();
+    expect(collapsedAfterSecondToggle.has("dup-heading")).toBe(true);
+    expect(collapsedAfterSecondToggle.has("dup-heading#1")).toBe(true);
+
+    editor.destroy();
   });
 
   it("hides section content in real DOM after collapsing", () => {

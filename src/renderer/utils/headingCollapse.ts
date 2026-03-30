@@ -6,10 +6,11 @@ import type { EditorView } from "@tiptap/pm/view";
 
 type HeadingCollapseMeta = {
   type: "toggle";
-  headingId: string;
+  headingKey: string;
 };
 
 export interface HeadingSection {
+  headingKey: string;
   headingId: string;
   headingLevel: number;
   headingPos: number;
@@ -42,6 +43,7 @@ export const collectHeadingSections = (doc: ProseMirrorNode): HeadingSection[] =
   });
 
   const sections: HeadingSection[] = [];
+  const headingIdCounts = new Map<string, number>();
 
   for (let index = 0; index < topLevelNodes.length; index += 1) {
     const currentNode = topLevelNodes[index];
@@ -53,6 +55,9 @@ export const collectHeadingSections = (doc: ProseMirrorNode): HeadingSection[] =
     if (!headingId) {
       continue;
     }
+    const duplicateIndex = headingIdCounts.get(headingId) ?? 0;
+    headingIdCounts.set(headingId, duplicateIndex + 1);
+    const headingKey = duplicateIndex === 0 ? headingId : `${headingId}#${duplicateIndex}`;
 
     const currentLevel = getHeadingLevel(currentNode.node);
     const contentPositions: number[] = [];
@@ -70,6 +75,7 @@ export const collectHeadingSections = (doc: ProseMirrorNode): HeadingSection[] =
     }
 
     sections.push({
+      headingKey,
       headingId,
       headingLevel: currentLevel,
       headingPos: currentNode.pos,
@@ -86,28 +92,29 @@ const buildCollapsedHeadingIds = (
   meta?: HeadingCollapseMeta
 ) => {
   const sections = collectHeadingSections(doc);
-  const validHeadingIds = new Set(sections.map((section) => section.headingId));
+  const validHeadingIds = new Set(sections.map((section) => section.headingKey));
   const nextIds = new Set(Array.from(previousIds).filter((headingId) => validHeadingIds.has(headingId)));
 
-  if (meta?.type === "toggle" && validHeadingIds.has(meta.headingId)) {
-    if (nextIds.has(meta.headingId)) {
-      nextIds.delete(meta.headingId);
+  if (meta?.type === "toggle" && validHeadingIds.has(meta.headingKey)) {
+    if (nextIds.has(meta.headingKey)) {
+      nextIds.delete(meta.headingKey);
     } else {
-      nextIds.add(meta.headingId);
+      nextIds.add(meta.headingKey);
     }
   }
 
   return nextIds;
 };
 
-export const toggleHeadingCollapsed = (state: EditorState, headingId: string): Transaction =>
+export const toggleHeadingCollapsed = (state: EditorState, headingKey: string): Transaction =>
   state.tr.setMeta(headingCollapseKey, {
     type: "toggle",
-    headingId
+    headingKey
   } satisfies HeadingCollapseMeta);
 
 const clearHeadingDomState = (dom: HTMLElement) => {
   dom.classList.remove("heading-collapsible", "heading-collapsed-content");
+  delete dom.dataset.headingKey;
   delete dom.dataset.headingId;
   delete dom.dataset.headingCollapsible;
   delete dom.dataset.headingCollapsed;
@@ -142,8 +149,9 @@ const syncHeadingCollapseDom = (view: EditorView) => {
       if (!(headingDom instanceof HTMLElement)) {
         continue;
       }
-      const isCollapsed = collapsedHeadingIds.has(section.headingId);
+      const isCollapsed = collapsedHeadingIds.has(section.headingKey);
       headingDom.classList.add("heading-collapsible");
+      headingDom.dataset.headingKey = section.headingKey;
       headingDom.dataset.headingId = section.headingId;
       headingDom.dataset.headingCollapsible = "true";
       headingDom.dataset.headingCollapsed = isCollapsed ? "true" : "false";
@@ -216,13 +224,13 @@ const headingCollapsePlugin = new Plugin<Set<string>>({
         if (offsetX < 0 || offsetX > 22) {
           return false;
         }
-        const headingId = headingEl.dataset.headingId;
-        if (!headingId) {
+        const headingKey = headingEl.dataset.headingKey;
+        if (!headingKey) {
           return false;
         }
         event.preventDefault();
         event.stopPropagation();
-        view.dispatch(toggleHeadingCollapsed(view.state, headingId));
+        view.dispatch(toggleHeadingCollapsed(view.state, headingKey));
         return true;
       }
     }

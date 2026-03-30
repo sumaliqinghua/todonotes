@@ -1,5 +1,37 @@
 # 实现记录（Records）
 
+## [2026-03-19] M0.13-R18-hotfix4 重复标题节点 ID 下的独立折叠修复
+- **What（做了什么）**：
+  - 修改 `src/renderer/utils/headingCollapse.ts`：
+    - 将标题折叠状态键从 `headingId` 改为 `headingKey`。`headingId` 是节点自身的 `data-node-id`；`headingKey` 是本次新增的折叠唯一键，用来真正区分“当前页面里到底是哪一个标题”。
+    - `collectHeadingSections` 现在会维护一个 `headingIdCounts` 计数表。遇到同一个 `headingId` 第一次出现时，`headingKey` 直接等于这个 `headingId`；第二次出现时，`headingKey` 变成 `headingId#1`；第三次出现时，变成 `headingId#2`，以此类推。
+    - 折叠状态集合、DOM 上的 `data-heading-key`、点击折叠入口后的切换逻辑，都统一改为使用 `headingKey`。
+    - 仍然保留 `data-heading-id`，因为它对调试“原始节点 ID 是什么”仍然有价值；只是折叠行为不再直接依赖它。
+  - 修改 `src/renderer/utils/__tests__/headingCollapse.test.ts`：
+    - 既有标题区间测试增加 `headingKey` 断言。
+    - 新增“重复标题节点 ID”测试，覆盖两个标题共享相同 `data-node-id` 时，折叠状态仍然彼此独立。
+- **Why（为什么这么做）**：
+  - 用户反馈“一个页面里有多个标题时，折叠展开其中一个，另外的标题也跟着折叠展开”。
+  - 根因是当前实现把 `headingId` 当成折叠唯一键，而用户贴出的真实 DOM 已经证明，当前正文里确实可能存在重复的 `data-node-id`。一旦两个标题共享同一个 `headingId`，它们就会命中同一条折叠状态记录，自然一起切换。
+- **How（怎么实现的）**：
+  - 当前折叠键生成规则是：
+    - 第一个 `dup-heading` → `headingKey = "dup-heading"`
+    - 第二个 `dup-heading` → `headingKey = "dup-heading#1"`
+    - 第三个 `dup-heading` → `headingKey = "dup-heading#2"`
+  - 折叠数据流现在是：
+    - `collectHeadingSections` 扫描标题 → 生成 `headingKey`
+    - `headingCollapseKey` 在编辑器内存中保存被折叠的 `headingKey` 集合
+    - 真实 DOM 上的标题节点写入 `data-heading-key`
+    - 点击标题左侧折叠区时，从 DOM 读取 `data-heading-key`，只切换对应那个标题
+  - 这样即使原始 `data-node-id` 重复，折叠键仍然会按“出现顺序”拆成多个独立目标。
+- **用户须知**：
+  - 这次修复后，哪怕一个页面里有两个标题意外用了同一个节点 ID，它们也不应该再联动折叠。
+  - 这次修复不改变折叠范围规则，范围仍然是“当前标题之后，到下一个同级或更高级标题之前”。
+- **已知限制**：
+  - 当前 `headingKey` 是“同页顺序相关”的临时键。如果你在同一窗口里频繁插入、删除、重排重复 ID 标题，已有折叠状态可能会因为顺序变化而重算。这符合当前“仅当前窗口临时生效”的设计边界。
+- **关联假设**：
+  - 无。
+
 ## [2026-03-17] Build-dev-hotfix 开发环境固定 Vite 端口并等待 renderer ready
 - **What（做了什么）**：
   - 修改 `vite.config.ts`：
