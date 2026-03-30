@@ -18,6 +18,8 @@ import { updateTaskItemIndent } from "../utils/taskIndent";
 import { hexToRgba } from "../utils/color";
 import { UniqueId } from "../utils/nodeId";
 import { scrollToBlock } from "../utils/blockScroll";
+import { Priority } from "../utils/priorityExtension";
+import PriorityDropdown from "./PriorityDropdown";
 
 const FOCUS_SECONDS = 25 * 60;
 const BREAK_SECONDS = 5 * 60;
@@ -140,7 +142,7 @@ export default function StickyView({
     }
   }).configure({ nested: true });
   const editor = useEditor({
-    extensions: [StarterKit.configure({ listItem: false }), HeadingCollapse, CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId],
+    extensions: [StarterKit.configure({ listItem: false }), HeadingCollapse, CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId, Priority],
     content: (task?.blocks as any) ?? { type: "doc", content: [{ type: "paragraph" }] },
     editable: true,
     editorProps: {
@@ -266,6 +268,29 @@ export default function StickyView({
     }
     prevTaskIdRef.current = task.id;
   }, [editor, task?.id, task?.blocks]);
+
+  useEffect(() => {
+    const handleScrollToBlock = (event: Event) => {
+      if (!editor || !task) return;
+      const customEvent = event as CustomEvent<string>;
+      const blockId = customEvent.detail;
+      if (!blockId) return;
+
+      setTimeout(() => {
+        const blockElement = editor.view.dom.querySelector(`[data-node-id="${blockId}"]`);
+        if (blockElement) {
+          blockElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          blockElement.classList.add('bg-blue-50', 'dark:bg-blue-900/30', 'transition-colors', 'duration-500');
+          setTimeout(() => {
+            blockElement.classList.remove('bg-blue-50', 'dark:bg-blue-900/30');
+          }, 2000);
+        }
+      }, 300);
+    };
+
+    window.addEventListener('scroll-to-block', handleScrollToBlock);
+    return () => window.removeEventListener('scroll-to-block', handleScrollToBlock);
+  }, [editor, task?.id]);
 
   useEffect(() => {
     if (!editor) {
@@ -1046,6 +1071,35 @@ export default function StickyView({
           action: () => {
             void onMoveChildReference(taskId);
           }
+        },
+        {
+          label: "优先级",
+          children: [
+            {
+              label: "高",
+              action: () => {
+                editor.chain().focus().updateAttributes("taskLink", { priority: "high" }).run();
+              }
+            },
+            {
+              label: "中",
+              action: () => {
+                editor.chain().focus().updateAttributes("taskLink", { priority: "medium" }).run();
+              }
+            },
+            {
+              label: "低",
+              action: () => {
+                editor.chain().focus().updateAttributes("taskLink", { priority: "low" }).run();
+              }
+            },
+            {
+              label: "无",
+              action: () => {
+                editor.chain().focus().updateAttributes("taskLink", { priority: null }).run();
+              }
+            }
+          ]
         }
       ];
       if (node) {
@@ -1086,6 +1140,46 @@ export default function StickyView({
             children: [{ label: "暂无可选子任务", disabled: true }]
           };
 
+    // determine current node type for priority
+    const currentNode = $from.parent;
+    let nodeName = currentNode.type.name;
+    // taskItem wrapper is actual item, but sometimes selection is in paragraph inside taskItem
+    if (nodeName === "paragraph" && $from.node(-1)?.type.name === "taskItem") {
+      nodeName = "taskItem";
+    } else if (nodeName === "paragraph" && $from.node(-1)?.type.name === "listItem") {
+      nodeName = "listItem";
+    }
+
+    const priorityMenuItem = {
+      label: "优先级",
+      children: [
+        {
+          label: "高",
+          action: () => {
+            editor.chain().focus().updateAttributes(nodeName, { priority: "high" }).run();
+          }
+        },
+        {
+          label: "中",
+          action: () => {
+            editor.chain().focus().updateAttributes(nodeName, { priority: "medium" }).run();
+          }
+        },
+        {
+          label: "低",
+          action: () => {
+            editor.chain().focus().updateAttributes(nodeName, { priority: "low" }).run();
+          }
+        },
+        {
+          label: "无",
+          action: () => {
+            editor.chain().focus().updateAttributes(nodeName, { priority: null }).run();
+          }
+        }
+      ]
+    };
+
     onShowMenu({
       x: event.clientX,
       y: event.clientY,
@@ -1113,6 +1207,7 @@ export default function StickyView({
               }
             ]
           : []),
+        priorityMenuItem,
         toggleCheckedMenuItem
       ]
     });
@@ -1361,8 +1456,9 @@ export default function StickyView({
           </div>
         </div>
         <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 flex items-center gap-1">
             <Breadcrumb ancestors={ancestors} current={task} onNavigate={onNavigate} />
+            <PriorityDropdown editor={editor} variant="light" onNavigate={onNavigate} currentTaskId={task.id} />
           </div>
           <HistoryNav
             variant="light"

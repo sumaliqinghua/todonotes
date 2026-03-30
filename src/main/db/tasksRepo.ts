@@ -283,3 +283,50 @@ export function searchTasks(options: { query: string; includeArchived?: boolean;
     return fallback.map(rowToTask);
   }
 }
+
+export function getPriorityBlocks(): import("../../shared/types").PriorityBlock[] {
+  const db = getDb();
+  const sql = `SELECT id, title, blocks FROM tasks WHERE is_deleted = 0 AND is_archived = 0`;
+  const rows = db.prepare(sql).all() as any[];
+  const results: import("../../shared/types").PriorityBlock[] = [];
+
+  for (const row of rows) {
+    const blocks = JSON.parse(row.blocks);
+    if (typeof blocks !== 'object' || !blocks || !Array.isArray((blocks as any).content)) continue;
+
+    const findPriorityBlocks = (node: any) => {
+      if (!node || typeof node !== 'object') return;
+
+      // Check if current node has priority attribute
+      if (node.attrs && typeof node.attrs.priority === 'string' && node.attrs.priority) {
+        results.push({
+          taskId: row.id,
+          taskTitle: row.title,
+          blockId: node.attrs.id || '',
+          priority: node.attrs.priority,
+          text: extractPlainText(node)
+        });
+      }
+
+      // Recurse into content array
+      if (Array.isArray(node.content)) {
+        for (const child of node.content) {
+          findPriorityBlocks(child);
+        }
+      }
+    };
+
+    for (const block of (blocks as any).content) {
+      findPriorityBlocks(block);
+    }
+  }
+
+  const priorityMap: Record<string, number> = { high: 1, medium: 2, low: 3 };
+
+  // Sort by priority ascending (1 is highest priority)
+  return results.sort((a, b) => {
+    const valA = priorityMap[String(a.priority)] || 99;
+    const valB = priorityMap[String(b.priority)] || 99;
+    return valA - valB;
+  });
+}

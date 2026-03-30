@@ -12,7 +12,8 @@ import {
   getAncestorChain,
   softDeleteTaskRecursively,
   restoreTaskRecursively,
-  searchTasks
+  searchTasks,
+  getPriorityBlocks
 } from "../db/tasksRepo";
 import { createEdge, deleteEdge, deleteEdgesByChildId } from "../db/edgesRepo";
 import { createReminder, deleteReminder, listDueReminders, listRemindersByTask, markReminderDone } from "../db/remindersRepo";
@@ -220,6 +221,10 @@ export function registerIpcHandlers() {
 
   ipcMain.handle("task:search", (_event, input: Parameters<IpcInvokeMap["task:search"]>[0]) => {
     return searchTasks(input);
+  });
+
+  ipcMain.handle("task:getPriorityBlocks", () => {
+    return getPriorityBlocks();
   });
 
   ipcMain.handle("task:createFromBlock", (_event, input: Parameters<IpcInvokeMap["task:createFromBlock"]>[0]) => {

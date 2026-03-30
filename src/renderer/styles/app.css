@@ -923,3 +923,36 @@ html.context-menu-root {
   height: 100%;
   max-height: none;
 }
+
+/* Task Priority Styles */
+.ProseMirror [data-priority="high"]::before {
+  content: "🔴";
+  margin-right: 6px;
+  font-size: 0.9em;
+  vertical-align: middle;
+}
+
+.ProseMirror [data-priority="medium"]::before {
+  content: "🟡";
+  margin-right: 6px;
+  font-size: 0.9em;
+  vertical-align: middle;
+}
+
+.ProseMirror [data-priority="low"]::before {
+  content: "🟢";
+  margin-right: 6px;
+  font-size: 0.9em;
+  vertical-align: middle;
+}
+
+/* Ensure priority icons work well with task lists and list items */
+.ProseMirror li[data-priority]::before {
+  position: relative;
+  top: 1px;
+}
+
+/* Adjust padding for blocks with priority to make room if needed */
+.ProseMirror [data-priority] {
+  position: relative;
+}
