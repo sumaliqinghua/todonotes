@@ -226,7 +226,7 @@ export default function PriorityDropdown({ editor, variant = "dark", onNavigate,
           {nodes.length === 0 ? (
             <div className="breadcrumb-popover-empty">暂无带优先级的块</div>
           ) : (
-            <div className="max-h-[60vh] overflow-y-auto w-[280px] scrollbar-hidden">
+            <div className="max-h-[60vh] overflow-y-auto w-[280px] sticky-scrollbar-visible">
               {renderGroup("高优", "high", nodes.filter((n) => n.priority === "high"))}
               {renderGroup("中优", "medium", nodes.filter((n) => n.priority === "medium"))}
               {renderGroup("低优", "low", nodes.filter((n) => n.priority === "low"))}
