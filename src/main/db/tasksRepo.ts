@@ -286,7 +286,7 @@ export function searchTasks(options: { query: string; includeArchived?: boolean;
 
 export function getPriorityBlocks(): import("../../shared/types").PriorityBlock[] {
   const db = getDb();
-  const sql = `SELECT id, title, blocks FROM tasks WHERE is_deleted = 0 AND is_archived = 0`;
+  const sql = `SELECT id, title, blocks FROM tasks WHERE is_deleted = 0 AND is_archived = 0 AND is_completed = 0`;
   const rows = db.prepare(sql).all() as any[];
   const results: import("../../shared/types").PriorityBlock[] = [];
 

@@ -20,6 +20,7 @@ export const Priority = Extension.create<PriorityOptions>({
         attributes: {
           priority: {
             default: null,
+            keepOnSplit: false,
             parseHTML: element => element.getAttribute('data-priority'),
             renderHTML: attributes => {
               if (!attributes.priority) {

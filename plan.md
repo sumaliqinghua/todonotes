@@ -1,6 +1,57 @@
 # 项目计划（里程碑驱动）
 
-更新时间：2026-03-16（Build-mac 已完成）
+更新时间：2026-04-02（M0.13-R20 已完成）
+
+## M0.13-R20：优先级下拉隐藏已完成/已删除任务
+
+### 任务清单
+
+- [x] 执行内容：定位优先级下拉的数据来源与任务过滤边界
+  - 具体执行步骤：
+    1. 检查 `src/main/db/tasksRepo.ts` 中 `getPriorityBlocks()` 的 SQL 查询条件
+    2. 确认当前已排除 `is_deleted = 0` 与 `is_archived = 0`，但尚未排除 `is_completed = 1`
+  - 验收标准：明确优先级下拉的展示范围由主进程数据源统一控制
+
+- [x] 执行内容：修复已完成任务出现在优先级下拉中的问题
+  - 具体执行步骤：
+    1. 调整 `getPriorityBlocks()` 的查询条件，统一排除已完成、已删除、已归档任务
+    2. 保持前端 `PriorityDropdown` 渲染逻辑不变，仅缩小数据源返回范围
+  - 验收标准：优先级下拉不再展示来自已完成任务或已删除任务的条目
+
+- [x] 执行内容：补充数据源回归测试并验证
+  - 具体执行步骤：
+    1. 新增 `src/renderer/utils/__tests__/priorityBlocksRepo.test.ts`
+    2. 验证 SQL 已包含 `is_completed = 0`
+    3. 验证返回结果只包含未完成任务中的优先级文本块，并按优先级排序
+    4. 运行 `npm run test`
+  - 验收标准：新增测试通过，且全量测试无回归
+
+状态：`[x] 已完成`
+
+## M0.13-R19：优先级行回车后不继承优先级
+
+### 任务清单
+
+- [x] 执行内容：定位优先级在新行被自动继承的根因
+  - 具体执行步骤：
+    1. 检查 `Priority` 扩展对 `paragraph`、`listItem`、`taskItem` 等节点的属性声明
+    2. 确认 Enter 分裂块时使用的是 Tiptap 的 `splitBlock` / `splitListItem`，并验证属性继承规则
+  - 验收标准：明确问题来自 `priority` 属性默认 `keepOnSplit: true`
+
+- [x] 执行内容：修复回车分裂新行时的优先级继承
+  - 具体执行步骤：
+    1. 在 `src/renderer/utils/priorityExtension.ts` 中把 `priority` 属性改为 `keepOnSplit: false`
+    2. 保持当前行原有优先级不变，仅让新分裂出来的下一行恢复普通状态
+  - 验收标准：在正文段落、无序列表、任务列表中按 Enter 后，新行不再自动带上红/黄/绿优先级标记
+
+- [x] 执行内容：补充回归测试并验证
+  - 具体执行步骤：
+    1. 新增 `src/renderer/utils/__tests__/priorityExtension.test.ts`
+    2. 覆盖段落、无序列表、任务列表三类回车分裂场景
+    3. 运行 `npm run test`
+  - 验收标准：新增测试通过，且全量测试无回归
+
+状态：`[x] 已完成`
 
 ## Build-mac：mac 应用打包链路修复
 
