@@ -1,5 +1,245 @@
 # 实现记录（Records）
 
+## [2026-04-07] M0.13-R21-simplify 时间模型收敛为仅截止时间
+- **What（做了什么）**：
+  - 修改 [src/shared/types.ts](/Users/lmy/proj/Others/todonotes/src/shared/types.ts)：
+    - 删除 `BlockTimingKind`。
+    - `TimedBlock` 只保留 `dueAt`，不再包含 `startAt`。
+  - 修改 [src/shared/blockTiming.ts](/Users/lmy/proj/Others/todonotes/src/shared/blockTiming.ts)：
+    - 块时间解析从“双时间字段”收敛为“只读 `dueAt`”。
+    - `formatBlockTimingBadge` 改成仅输出截止相关文案：
+      - 未到期时直接显示剩余时间，例如 `10m`
+      - 过期不足 1 分钟时显示 `已超时`
+      - 过期更久时显示 `超时xxm / 超时xxh`
+    - `updateBlockTimingInBlocks` 只改写 `dueAt`，不再接受 `startAt`。
+  - 修改 [src/renderer/utils/blockTiming.ts](/Users/lmy/proj/Others/todonotes/src/renderer/utils/blockTiming.ts)：
+    - `BlockTiming` 扩展只挂载 `dueAt` 属性。
+    - 写入新时间时会主动删除残留 `startAt`，避免旧字段继续留在块属性里。
+    - DOM 徽标只保留 `has-block-time-due` 一套样式类。
+  - 修改 [src/renderer/components/BlockTimeModal.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/BlockTimeModal.tsx)：
+    - 去掉“开始时间 / 截止时间”切换按钮。
+    - 现在窗口只负责设置“截止时间”，标题改为 `设置截止时间`。
+  - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：
+    - 删除 `设置开始时间...` 菜单及其所有快捷项。
+    - 保留 `设置截止时间...` 二级菜单。
+    - 时间筛选和最近顺序切换只按 `dueAt` 判断。
+    - 自定义时间窗口只传 `timestamp`，不再传时间类型。
+  - 修改 [src/renderer/styles/app.css](/Users/lmy/proj/Others/todonotes/src/renderer/styles/app.css)：
+    - 删除开始时间对应的颜色样式，只保留截止时间暖色系样式。
+  - 修改 [src/renderer/utils/__tests__/blockTiming.test.ts](/Users/lmy/proj/Others/todonotes/src/renderer/utils/__tests__/blockTiming.test.ts)：
+    - 删除开始时间相关断言，改成验证“仅截止时间”的格式化、收集和改写规则。
+- **Why（为什么这么做）**：
+  - 用户明确选择“极简版：只保留截止时间”，说明当前场景更需要“哪些内容最急、最该切过去”，而不是“晚点再开始做”。
+  - 现有系统已经有手动待处理入口，它足够承担“以后再看”的语义；继续保留开始时间会让正文徽标、待处理排序、右键菜单和自定义窗口都增加一套状态分支。
+- **How（怎么实现的）**：
+  - 这次收敛后的数据流是：
+    - 右键正文块
+    - 进入 `设置截止时间...`
+    - 选择快捷时间或自定义截止时间
+    - 只把 `dueAt` 写进正文块属性
+    - 正文与待处理列表统一按 `dueAt` 显示和排序
+  - 旧的 `startAt` 没有做兼容迁移；新写入路径会把残留 `startAt` 从块属性里移除。
+- **用户须知**：
+  - 现在产品里只剩一个时间概念：`截止时间`。
+  - 不再有：
+    - `开始时间`
+    - `已开始`
+    - `开始xxm`
+    - `设置开始时间...`
+  - 时间徽标看到的就是“离截止还剩多久”或“已经超时多久”。
+- **已知限制**：
+  - 这次收敛明确不兼容旧 `startAt` 数据；如果早期实验里写过开始时间，这些条目不会继续显示为时间项。
+- **关联假设**：
+  - `[2026-04-07/M0.13-R21-simplify] 时间能力收敛为“仅截止时间”`
+  - `[2026-04-07/M0.13-R21-simplify] 不兼容旧 startAt 数据`
+
+## [2026-04-07] M0.13-R21 块级时间与 Sticky 待处理工作台需求收束
+- **What（做了什么）**：
+  - 修改 `PRD.md`：
+    - 在变更历史中新增本轮需求收束记录，明确这次不是简单追加“时间功能”，而是把时间能力并入 Sticky 的待处理工作流。
+    - 新增“`5.3 带时间的待处理工作台（M0.13-R21 规划中）`”章节，逐项定义：
+      - `startAt`：开始时间，表示“从这个时间点开始该处理这段内容”
+      - `dueAt`：截止时间，表示“最晚在这个时间点前完成这段内容”
+      - 二者互斥规则、右键快捷项、自定义时间窗口字段、倒计时格式、筛选范围、最近顺序切换规则
+      - 本轮不做的范围：不接提醒 UI、不做 Library 视图、不做任务级时间、不支持 `taskLink` 时间
+  - 修改 `ASSUMPTIONS.md`：
+    - 追加 6 条与本轮规划直接相关的假设，包括“时间挂正文块”“保留手动待处理并共用 Sticky 单入口”“快捷时间默认写截止时间”“首轮只做 Sticky”“页面 2 分钟刷新 + 倒计时 1 分钟本地更新”“首轮不支持 `taskLink` 挂时间”。
+  - 修改 `plan.md`：
+    - 新增里程碑 `M0.13-R21：块级时间与 Sticky 待处理工作台`。
+    - 将“需求收束与文档对齐”两项任务标记为已完成。
+    - 将后续开发拆成 5 个可执行任务：块级时间属性、Sticky 右键时间入口、自定义时间窗口、时间筛选与最近切换、刷新与倒计时更新、测试验证。
+  - 修改 `PROJECT_STATUS.md`：
+    - 更新最后更新时间为 `2026-04-07`。
+    - 在项目概述、当前进度、已知问题中补充“当前时间能力分散但 R21 规划已完成”的项目状态。
+  - 修改 `DECISIONS.md`：
+    - 追加本轮架构决策，说明为什么要把时间能力收束到 Sticky 单一执行入口。
+- **Why（为什么这么做）**：
+  - 这次原始需求同时提到“块开始时间”“截止时间”“今天 / 1 小时内”“快速切换正在处理或即将处理的事情”“右键快捷时间”“页面定时刷新”，如果直接逐条实现，会和现有的 Sticky 待处理、优先级下拉、提醒调度形成三套并行概念，继续放大界面分散问题。
+  - 先做需求收束可以把“这是一个新的时间系统”改写成“这是 Sticky 待处理的时间化升级”，让后续实现边界清晰，也避免一边做一边改语义。
+- **How（怎么实现的）**：
+  - 本轮的收束思路是：
+    - 现状盘点：`StickyView` 的待处理块级导航 → `PriorityDropdown` 的块优先级导航 → `reminders` 的后台调度
+    - 统一目标：不再新增一套时间面板，而是让 Sticky 的待处理承担“当前该处理什么”的统一入口
+    - 数据归属：时间直接挂正文块属性，而不是挂任务表或提醒表
+    - 交互边界：右键快捷时间默认设置截止时间，自定义窗口再选择开始时间或截止时间
+    - 刷新策略：页面内容 2 分钟刷新，倒计时文案 1 分钟本地更新
+  - 核心信息流被定义为：
+    - 正文块右键设时间 → 时间写入块属性（`startAt` / `dueAt`）→ Sticky 正文显示倒计时 → `待处理（n）` 统一汇总并支持 `全部 / 今天 / 1 小时内` 筛选 → 底部左右按钮按当前筛选结果连续跳转
+- **用户须知**：
+  - 这次交付还是“需求与计划收束”，没有开始改业务代码。
+  - 但后续实现的默认边界已经固定：
+    - 时间是“块级”的，不是“任务级”的
+    - 开始时间和截止时间只能二选一
+    - 手动待处理不会被删除，而是继续保留
+    - 首轮只做 Sticky，不碰 Library 的 Today 视图
+    - 首轮不接提醒弹窗闭环
+- **已知限制**：
+  - 目前只是把语义、数据边界和执行计划固定下来，实际界面和数据结构还没开始改。
+  - “正在处理”在第一版里会通过“时间已到或最接近当前时间的条目优先”来表达，后续若要细分为更明确的状态标签（例如 `进行中`、`即将到期`），可以在实现阶段追加。
+- **关联假设**：
+  - `[2026-04-07/M0.13-R21] 时间信息挂在正文块，不新增任务级时间字段`
+  - `[2026-04-07/M0.13-R21] 保留手动待处理，并与时间块共用 Sticky 单一入口`
+  - `[2026-04-07/M0.13-R21] 右键快捷时间默认写入截止时间，自定义窗口再选择时间类型`
+  - `[2026-04-07/M0.13-R21] 首轮只在 Sticky 落地块时间工作台`
+  - `[2026-04-07/M0.13-R21] 页面内容按 2 分钟刷新，倒计时按 1 分钟本地更新`
+  - `[2026-04-07/M0.13-R21] 首轮不为 taskLink 卡片挂时间`
+
+## [2026-04-07] M0.13-R21 块级时间与 Sticky 待处理工作台首轮实现
+- **What（做了什么）**：
+  - 新增 [src/shared/blockTiming.ts](/Users/lmy/proj/Others/todonotes/src/shared/blockTiming.ts)：
+    - 新增块级时间纯函数工具，负责解析正文块上的 `startAt` 与 `dueAt`。
+    - 新增倒计时格式化函数，把剩余时间转换成 `xxdxxhxxm` 格式，并在到点后返回 `已开始` / `已超时` 状态文案。
+    - 新增 `collectTimedBlocksFromTask`，从任务 `blocks` JSON 中收集带时间的正文块，供 Sticky 工作台跨页面汇总。
+    - 新增 `updateBlockTimingInBlocks`，用于按 `blockId` 直接改写某个任务正文中的时间属性，解决“待处理列表里清除其他页面时间块”问题。
+  - 修改 [src/shared/types.ts](/Users/lmy/proj/Others/todonotes/src/shared/types.ts)：
+    - 新增 `BlockTimingKind`。它表示时间类型，只有两个可选值：
+      - `start`：开始时间
+      - `due`：截止时间
+    - 新增 `TimedBlock`。它表示一个被主进程收集出来的“带时间正文块”，包含来源任务、块 ID、块类型、块文本预览、开始时间、截止时间。
+    - 修正 `PriorityBlock.priority` 的类型，使其与现有实现一致，改为 `high / medium / low` 三种字符串值。
+  - 修改 [src/shared/ipc.ts](/Users/lmy/proj/Others/todonotes/src/shared/ipc.ts)：
+    - 新增 IPC 方法 `task:listTimedBlocksByRoot`。这个方法的作用是“按 Sticky 共享根任务汇总整棵活跃子树里的所有带时间块”。
+  - 修改 [src/main/db/tasksRepo.ts](/Users/lmy/proj/Others/todonotes/src/main/db/tasksRepo.ts)：
+    - 新增 `listTimedBlocksByRootTaskId(rootTaskId)`。
+    - 该函数会从当前 Sticky 共享根任务开始，递归遍历所有“未完成、未归档、未删除”的子任务，再扫描每个任务正文里的带时间块并返回结果。
+  - 修改 [src/main/ipc/handlers.ts](/Users/lmy/proj/Others/todonotes/src/main/ipc/handlers.ts)：
+    - 注册 `task:listTimedBlocksByRoot` IPC 处理器，把渲染层时间工作台和主进程汇总查询串起来。
+  - 修改 [src/preload/index.ts](/Users/lmy/proj/Others/todonotes/src/preload/index.ts)：
+    - 把 `window.api.invoke` 改成“第二个参数可选”的泛型签名，兼容 `task:getPriorityBlocks` 这类无参数 IPC，同时保持现有有参 IPC 的类型约束。
+  - 新增 [src/renderer/utils/blockTiming.ts](/Users/lmy/proj/Others/todonotes/src/renderer/utils/blockTiming.ts)：
+    - 新增 `BlockTiming` Tiptap 扩展，为正文块挂载 `startAt` / `dueAt` 两个属性，并设置 `keepOnSplit: false`，避免回车拆行时错误继承时间。
+    - 新增 `syncBlockTimingDom`，把块时间同步到真实 DOM，并插入时间徽标节点，避免与现有优先级 `::before` 伪元素冲突。
+    - 新增 `getTimedNodeSelectionSnapshot`、`setTimingOnBlockById`、`clearTimingOnBlockById` 等工具，用于 Sticky 右键和自定义时间窗口精确更新当前块。
+  - 新增 [src/renderer/components/BlockTimeModal.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/BlockTimeModal.tsx)：
+    - 提供自定义时间窗口，支持切换“开始时间 / 截止时间”，并用 `datetime-local` 输入精确到分钟的本地时间。
+  - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：
+    - 编辑器接入 `BlockTiming` 扩展，并在前端每分钟重算一次倒计时显示。
+    - Sticky 右键菜单新增快捷截止时间：`5 分钟后 / 10 分钟后 / 30 分钟后 / 1 小时后 / 2 小时后`。
+    - Sticky 右键菜单新增 `设置时间...` 和 `清除时间`。
+    - 新增时间块汇总状态与加载逻辑，从当前共享根任务收集跨页面时间条目。
+    - 将旧的“仅手动待处理列表”升级为“手动待处理 + 时间条目”的统一队列，并补充 `全部 / 今天 / 1 小时内` 筛选。
+    - 底部左右切换改为按当前筛选结果轮换；在有时间条目时，优先按最近顺序切换时间块。
+    - 同一块如果既有手动待处理又有时间，会合并成一条；点击移除时会同时移除手动书签和时间。
+  - 修改 [src/renderer/components/TaskDetail.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/TaskDetail.tsx)：
+    - 详情页编辑器同样接入 `BlockTiming` 扩展与每分钟 DOM 重绘，让时间块在 Library 详情页也能看到倒计时徽标。
+  - 修改 [src/renderer/App.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/App.tsx)：
+    - 新增每 2 分钟一次的当前页面刷新。
+    - 把 Sticky 当前共享根任务传给 `StickyView`，用于跨页面时间块汇总。
+  - 修改 [src/renderer/styles/app.css](/Users/lmy/proj/Others/todonotes/src/renderer/styles/app.css)：
+    - 新增正文时间徽标样式，开始时间和截止时间使用不同颜色。
+    - 新增 Sticky 待处理弹层的筛选 Tab 样式。
+    - 新增待处理条目中的时间小徽标样式。
+  - 新增测试 [src/renderer/utils/__tests__/blockTiming.test.ts](/Users/lmy/proj/Others/todonotes/src/renderer/utils/__tests__/blockTiming.test.ts)：
+    - 覆盖倒计时格式化、时间到点状态文案、从任务正文收集带时间块、按块 ID 清除/改写时间、今天 / 1 小时内判断这 5 类核心规则。
+- **Why（为什么这么做）**：
+  - 这轮的核心目标不是“再加一个时间功能”，而是让 Sticky 真的成为“当前该处理什么”的工作台。
+  - 如果只把时间存在当前页，`今天` 和 `1 小时内` 基本没有工作台价值；所以这次把范围定义成“当前 Sticky 共享根任务的整棵活跃子树”。
+  - 如果继续沿用伪元素渲染时间徽标，会和当前优先级的红黄绿标记争夺 `::before`，所以这次改成把真实 DOM 时间徽标节点直接同步进去。
+- **How（怎么实现的）**：
+  - 数据流现在变成：
+    - 在 Sticky 右键当前正文块
+    - 选择快捷截止时间或打开自定义时间窗口
+    - `BlockTiming` 把 `startAt / dueAt` 写入块属性，并保证两者互斥
+    - 主进程通过 `task:listTimedBlocksByRoot` 扫描当前 Sticky 共享根下的所有活跃任务，收集带时间的正文块
+    - Sticky 把这些时间条目与手动待处理书签合并成统一队列
+    - 队列支持 `全部 / 今天 / 1 小时内` 筛选
+    - 底部左右按钮按当前筛选结果连续切换
+  - 刷新链路现在是：
+    - `App.tsx` 每 2 分钟重新拉一次当前页面任务内容
+    - `StickyView` 和 `TaskDetail` 每 1 分钟本地重算一次倒计时徽标
+  - 跨页面清时间的链路现在是：
+    - 在待处理弹层点击移除
+    - 如果目标块就在当前编辑器页面，直接用编辑器命令清除
+    - 如果目标块在其他任务页，就通过 `task:get` 拉取那一页的 `blocks`
+    - 用 `updateBlockTimingInBlocks` 按 `blockId` 改写 JSON
+    - 再通过 `task:update` 写回数据库
+- **用户须知**：
+  - 现在可以在 Sticky 正文里直接给文本块设置：
+    - 开始时间：表示预计从什么时候开始做
+    - 截止时间：表示最晚什么时候前完成
+  - 右键快捷时间默认全部是“截止时间”，适合快速安排“多久内完成”。
+  - 如果要设“开始时间”或精确日期时间，用 `设置时间...`。
+  - `待处理 (n)` 现在不再只是手动书签，而是统一包含：
+    - 手动加入待处理的块
+    - 带时间的块
+  - `今天` 和 `1 小时内` 只显示带时间条目，不显示纯手动待处理条目。
+- **已知限制**：
+  - 第一版不支持给子任务链接卡片 `taskLink` 直接挂时间。
+  - 第一版没有把时间能力接进提醒弹窗，所以“时间块到点”只会在正文和待处理工作台里体现，不会弹系统内提醒。
+  - 带时间条目当前按时间自动排序，不能像纯手动待处理那样拖拽排序；拖拽仍只作用于纯手动待处理条目。
+  - Sticky 之外没有 Today / 1 小时内时间视图，Library 当前只展示倒计时徽标，不提供对应筛选工作台。
+- **关联假设**：
+  - `[2026-04-07/M0.13-R21] 时间信息挂在正文块，不新增任务级时间字段`
+  - `[2026-04-07/M0.13-R21] 保留手动待处理，并与时间块共用 Sticky 单一入口`
+  - `[2026-04-07/M0.13-R21] 右键快捷时间默认写入截止时间，自定义窗口再选择时间类型`
+  - `[2026-04-07/M0.13-R21] 首轮只在 Sticky 落地块时间工作台`
+  - `[2026-04-07/M0.13-R21] 首轮不为 taskLink 卡片挂时间`
+  - `[2026-04-07/M0.13-R21] 时间队列按 Sticky 共享根整棵活跃子树汇总`
+  - `[2026-04-07/M0.13-R21] 同一块同时存在手动待处理和时间时合并为一条`
+
+## [2026-04-07] M0.13-R21-hotfix 时间右键分层与当前块命中修复
+- **What（做了什么）**：
+  - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：
+    - 将原来平铺在一级菜单里的“截止时间 5/10/30 分钟后、1/2 小时后”改成两个二级菜单：
+      - `设置截止时间...`
+      - `设置开始时间...`
+    - 每个二级菜单里都提供 5/10/30 分钟、1/2 小时快捷项，以及一个自定义入口：
+      - `自定义截止时间...`
+      - `自定义开始时间...`
+    - 时间目标块的解析不再只依赖当前编辑器选区，改为优先使用右键命中的块锚点 `pendingBlockBookmarkPosRef` 解析当前块。
+    - 新增 `resolveTimedContextTarget`，在写时间前先确认目标块类型、块位置、块 ID；如果块 ID 缺失或重复，会先修复为唯一 ID。
+    - 快捷设时和自定义设时时会立即刷新本地 `timingNow`，让正文徽标和待处理弹层都按当前时刻重算，修复“10 分钟显示成 11 分钟”。
+  - 修改 [PRD.md](/Users/lmy/proj/Others/todonotes/PRD.md)、[plan.md](/Users/lmy/proj/Others/todonotes/plan.md)、[PROJECT_STATUS.md](/Users/lmy/proj/Others/todonotes/PROJECT_STATUS.md)：
+    - 同步记录本次 hotfix 的菜单结构变化、命中修复与倒计时校正行为。
+- **Why（为什么这么做）**：
+  - 一级菜单平铺多个截止时间项会让右键菜单显得拥挤，也无法直观看出“开始时间”和“截止时间”是两条不同语义。
+  - 当前时间设置如果依赖选区，有些场景会在右键时把目标块漂到下一行，尤其是当前行下面还有非空块时更容易触发。
+  - 待处理列表里的时间文案使用的是本地分钟时钟；如果用户刚设完时间但本地 `now` 还停在上一分钟，10 分钟就会被算成 11 分钟。
+- **How（怎么实现的）**：
+  - 新的时间菜单链路是：
+    - 右键正文块
+    - 一级菜单显示 `设置截止时间...` / `设置开始时间...`
+    - 点击任一菜单后展开对应快捷项和自定义项
+  - 新的目标块解析链路是：
+    - 右键时记录命中块位置到 `pendingBlockBookmarkPosRef`
+    - 菜单动作执行时优先按这个位置解析块
+    - 解析出块位置与块 ID 后再写 `startAt / dueAt`
+  - 倒计时校正链路是：
+    - 执行快捷设时或自定义设时
+    - 先把 `timingNow` 更新为 `Date.now()`
+    - 再写时间块属性并重绘徽标 / 列表时间文案
+- **用户须知**：
+  - 现在右键菜单里不再直接看到一长串平铺的截止时间项，而是先看到：
+    - `设置截止时间...`
+    - `设置开始时间...`
+  - 自定义时间窗口现在默认就是“当前时间”，不会再默认预填未来 1 小时。
+  - 右键当前行设时间后，时间徽标和待处理记录应当命中当前行，而不是下一行。
+- **已知限制**：
+  - 这次 hotfix 只修正时间设置命中和菜单结构，不改变“时间条目按共享根任务整棵活跃子树汇总”的整体设计。
+- **关联假设**：
+  - `[2026-04-07/M0.13-R21] 右键快捷时间默认写入截止时间，自定义窗口再选择时间类型`
+  - `[2026-04-07/M0.13-R21] 时间队列按 Sticky 共享根整棵活跃子树汇总`
+
 ## [2026-03-19] M0.13-R18-hotfix4 重复标题节点 ID 下的独立折叠修复
 - **What（做了什么）**：
   - 修改 `src/renderer/utils/headingCollapse.ts`：

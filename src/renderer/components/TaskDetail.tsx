@@ -19,6 +19,7 @@ import { CollapsibleListItem } from "../utils/listCollapse";
 import { updateTaskItemIndent } from "../utils/taskIndent";
 import { UniqueId } from "../utils/nodeId";
 import { Priority } from "../utils/priorityExtension";
+import { BlockTiming, syncBlockTimingDom } from "../utils/blockTiming";
 
 const DEFAULT_BLOCKS = {
   type: "doc",
@@ -75,6 +76,7 @@ export default function TaskDetail({
   const scrollTimer = useRef<number | null>(null);
   const pendingRemoteBlocksRef = useRef<any | null>(null);
   const lastLocalBlocksHashRef = useRef<string | null>(null);
+  const [timingNow, setTimingNow] = useState(() => Date.now());
 
   const errorToMessage = (error: unknown, fallback: string) => {
     if (error instanceof Error && error.message) {
@@ -107,7 +109,7 @@ export default function TaskDetail({
   }).configure({ nested: true });
 
   const editor = useEditor({
-    extensions: [StarterKit.configure({ listItem: false }), HeadingCollapse, CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId, Priority],
+    extensions: [StarterKit.configure({ listItem: false }), HeadingCollapse, CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId, Priority, BlockTiming],
     content: (task?.blocks as any) ?? DEFAULT_BLOCKS,
     editorProps: {
       handlePaste: imageHandlers.handlePaste,
@@ -292,6 +294,32 @@ export default function TaskDetail({
   useEffect(() => {
     editorRef.current = editor ?? null;
   }, [editor]);
+
+  useEffect(() => {
+    let intervalId: number | null = null;
+    const tick = () => setTimingNow(Date.now());
+    const delay = Math.max(1000, 60000 - (Date.now() % 60000));
+    const timeoutId = window.setTimeout(() => {
+      tick();
+      intervalId = window.setInterval(tick, 60000);
+    }, delay);
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      syncBlockTimingDom(editor.view, timingNow);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [editor, timingNow, task?.blocks]);
 
   useEffect(() => {
     if (!editor) {
@@ -632,7 +660,7 @@ export default function TaskDetail({
           </div>
         )}
         <div className="flex items-center gap-2">
-          <PriorityDropdown editor={editor} variant="dark" onNavigate={onNavigate} currentTaskId={task.id} />
+          <PriorityDropdown editor={editor} variant="dark" onNavigate={(taskId) => onNavigate(taskId, true)} currentTaskId={task.id} />
           <TaskPickerDropdown
             variant="dark"
             loadTasks={onLoadInsertableChildren}

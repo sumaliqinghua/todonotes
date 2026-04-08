@@ -1,11 +1,18 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import { NodeSelection, Selection, TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
-import type { Task, WindowBookmark } from "../../shared/types";
+import type { Task, TimedBlock, WindowBookmark } from "../../shared/types";
+import {
+  formatBlockTimingBadge,
+  getTimedBlockDueAt,
+  isTimestampInToday,
+  isTimestampWithinWindow,
+  updateBlockTimingInBlocks
+} from "../../shared/blockTiming";
 import { TaskLinkNode } from "./TaskLinkNode";
 import Breadcrumb from "./Breadcrumb";
 import HistoryNav from "./HistoryNav";
@@ -19,7 +26,15 @@ import { hexToRgba } from "../utils/color";
 import { UniqueId } from "../utils/nodeId";
 import { scrollToBlock } from "../utils/blockScroll";
 import { Priority } from "../utils/priorityExtension";
+import {
+  BlockTiming,
+  clearTimingOnBlockById,
+  getTimedNodeSelectionSnapshot,
+  setTimingOnBlockById,
+  syncBlockTimingDom
+} from "../utils/blockTiming";
 import PriorityDropdown from "./PriorityDropdown";
+import BlockTimeModal from "./BlockTimeModal";
 
 const FOCUS_SECONDS = 25 * 60;
 const BREAK_SECONDS = 5 * 60;
@@ -28,6 +43,7 @@ const BREAK_MINUTES = 5;
 
 interface Props {
   windowId: string;
+  rootTaskId: string;
   task: Task | null;
   ancestors: Task[];
   onNavigate: (taskId: string, reset: boolean) => void;
@@ -54,9 +70,52 @@ interface Props {
 }
 
 type PomodoroPhase = "idle" | "focus" | "break";
+type PendingFilter = "all" | "today" | "soon";
+
+interface PendingQueueEntry {
+  key: string;
+  taskId: string;
+  title: string;
+  blockId: string;
+  blockCursorOffset?: number;
+  blockContent: string;
+  blockType?: string;
+  dueAt?: number;
+  isManual: boolean;
+  isTimed: boolean;
+}
+
+const buildPendingBookmarkKey = (bookmark: WindowBookmark) =>
+  `${bookmark.taskId}_${bookmark.blockId ?? "task"}_${bookmark.blockCursorOffset ?? "legacy"}`;
+
+const buildTimedBlockBaseKey = (timedBlock: Pick<TimedBlock, "taskId" | "blockId">) => `${timedBlock.taskId}_${timedBlock.blockId}`;
+
+const compareTimedQueueEntries = (left: Pick<PendingQueueEntry, "dueAt">, right: Pick<PendingQueueEntry, "dueAt">, now: number) => {
+  const leftDueAt = getTimedBlockDueAt(left);
+  const rightDueAt = getTimedBlockDueAt(right);
+  if (leftDueAt === null && rightDueAt === null) {
+    return 0;
+  }
+  if (leftDueAt === null) {
+    return 1;
+  }
+  if (rightDueAt === null) {
+    return -1;
+  }
+  const leftIsPast = leftDueAt <= now;
+  const rightIsPast = rightDueAt <= now;
+  if (leftIsPast !== rightIsPast) {
+    return leftIsPast ? -1 : 1;
+  }
+  if (leftIsPast && rightIsPast) {
+    return rightDueAt - leftDueAt;
+  }
+  return leftDueAt - rightDueAt;
+};
 
 export default function StickyView({
   windowId,
+  rootTaskId,
   task,
   ancestors,
   onNavigate,
@@ -107,11 +166,16 @@ export default function StickyView({
   const pendingRemoteBlocksRef = useRef<any | null>(null);
   const lastLocalBlocksHashRef = useRef<string | null>(null);
   const [pendingBookmarkTaskRefreshVersion, setPendingBookmarkTaskRefreshVersion] = useState(0);
+  const [timedBlocksRefreshVersion, setTimedBlocksRefreshVersion] = useState(0);
   const [hiddenPendingTaskIds, setHiddenPendingTaskIds] = useState<Record<string, boolean>>({});
   const [draggingPendingKey, setDraggingPendingKey] = useState<string | null>(null);
   const [dragOverPendingKey, setDragOverPendingKey] = useState<string | null>(null);
   const [activePendingKey, setActivePendingKey] = useState<string | null>(null);
   const [showCheckedCheckboxBlocks, setShowCheckedCheckboxBlocks] = useState(true);
+  const [timingNow, setTimingNow] = useState(() => Date.now());
+  const [timedBlocks, setTimedBlocks] = useState<TimedBlock[]>([]);
+  const [pendingFilter, setPendingFilter] = useState<PendingFilter>("all");
+  const [timeModalState, setTimeModalState] = useState<{ blockId: string; timestamp: number } | null>(null);
 
   const errorToMessage = (error: unknown, fallback: string) => {
     if (error instanceof Error && error.message) {
@@ -142,7 +206,7 @@ export default function StickyView({
     }
   }).configure({ nested: true });
   const editor = useEditor({
-    extensions: [StarterKit.configure({ listItem: false }), HeadingCollapse, CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId, Priority],
+    extensions: [StarterKit.configure({ listItem: false }), HeadingCollapse, CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId, Priority, BlockTiming],
     content: (task?.blocks as any) ?? { type: "doc", content: [{ type: "paragraph" }] },
     editable: true,
     editorProps: {
@@ -365,15 +429,44 @@ export default function StickyView({
   useEffect(() => {
     const offUpdated = window.api.on("task:updated", () => {
       setPendingBookmarkTaskRefreshVersion((prev) => prev + 1);
+      setTimedBlocksRefreshVersion((prev) => prev + 1);
     });
     const offDeleted = window.api.on("task:deleted", () => {
       setPendingBookmarkTaskRefreshVersion((prev) => prev + 1);
+      setTimedBlocksRefreshVersion((prev) => prev + 1);
     });
     return () => {
       offUpdated();
       offDeleted();
     };
   }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setTimedBlocksRefreshVersion((prev) => prev + 1);
+    }, 120000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    let canceled = false;
+    const loadTimedBlocks = async () => {
+      try {
+        const result = await window.api.invoke("task:listTimedBlocksByRoot", { rootTaskId });
+        if (!canceled) {
+          setTimedBlocks(Array.isArray(result) ? result : []);
+        }
+      } catch {
+        if (!canceled) {
+          setTimedBlocks([]);
+        }
+      }
+    };
+    void loadTimedBlocks();
+    return () => {
+      canceled = true;
+    };
+  }, [rootTaskId, timedBlocksRefreshVersion]);
 
   useEffect(() => {
     let canceled = false;
@@ -443,6 +536,32 @@ export default function StickyView({
   useEffect(() => {
     editorRef.current = editor ?? null;
   }, [editor]);
+
+  useEffect(() => {
+    let intervalId: number | null = null;
+    const tick = () => setTimingNow(Date.now());
+    const delay = Math.max(1000, 60000 - (Date.now() % 60000));
+    const timeoutId = window.setTimeout(() => {
+      tick();
+      intervalId = window.setInterval(tick, 60000);
+    }, delay);
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      syncBlockTimingDom(editor.view, timingNow);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [editor, timingNow, task?.blocks]);
 
   useEffect(() => {
     return () => {
@@ -735,6 +854,56 @@ export default function StickyView({
     return count;
   };
 
+  const parseTimestamp = (value: unknown): number | null => {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return Math.floor(value);
+    }
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return Math.floor(parsed);
+      }
+    }
+    return null;
+  };
+
+  const resolveTimedContextTarget = (rawPos: number) => {
+    if (!editor) {
+      return null;
+    }
+    const anchor = resolveBlockAnchor(editor.state.doc, rawPos);
+    if (!anchor) {
+      return null;
+    }
+    let { blockNode, blockPos } = anchor;
+    if (!["paragraph", "heading", "listItem", "taskItem"].includes(blockNode.type.name)) {
+      return null;
+    }
+    let blockId = typeof blockNode.attrs?.id === "string" && blockNode.attrs.id.trim()
+      ? blockNode.attrs.id
+      : "";
+    const shouldResetId = !blockId || countNodeIdOccurrences(editor.state.doc, blockId) > 1;
+    if (shouldResetId) {
+      blockId = `node_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      editor.view.dispatch(
+        editor.state.tr.setNodeMarkup(blockPos, undefined, {
+          ...blockNode.attrs,
+          id: blockId
+        })
+      );
+      const refreshed = editor.state.doc.nodeAt(blockPos);
+      if (refreshed) {
+        blockNode = refreshed;
+      }
+    }
+    return {
+      blockId,
+      blockPos,
+      blockType: blockNode.type.name,
+      dueAt: parseTimestamp(blockNode.attrs?.dueAt)
+    };
+  };
+
   const resolveBlockAnchor = (
     doc: Editor["state"]["doc"],
     rawPos: number
@@ -915,34 +1084,31 @@ export default function StickyView({
     }));
   };
 
-  const buildPendingBookmarkKey = (bookmark: WindowBookmark) =>
-    `${bookmark.taskId}_${bookmark.blockId ?? "task"}_${bookmark.blockCursorOffset ?? "legacy"}`;
-
   const buildBookmarkLabel = (title: string) => `${(title || "未命名").slice(0, 2)}...`;
 
-  const focusPendingBookmark = (bookmark: WindowBookmark, options?: { closePopup?: boolean }) => {
+  const focusPendingEntry = (entry: PendingQueueEntry, options?: { closePopup?: boolean }) => {
     if (options?.closePopup !== false) {
       setPendingPopup(null);
     }
     setBookmarkTip(null);
     bookmarkHoverTaskIdRef.current = null;
-    if (!bookmark.blockId) {
+    if (!entry.blockId) {
       return;
     }
-    setActivePendingKey(buildPendingBookmarkKey(bookmark));
+    setActivePendingKey(entry.key);
     pendingFocusRef.current = {
-      taskId: bookmark.taskId,
-      blockId: bookmark.blockId,
-      blockCursorOffset: bookmark.blockCursorOffset
+      taskId: entry.taskId,
+      blockId: entry.blockId,
+      blockCursorOffset: entry.blockCursorOffset
     };
 
     // 如果不在当前页面，先跳转到对应页面
-    if (bookmark.taskId !== task?.id) {
-      onNavigate(bookmark.taskId, false);
+    if (entry.taskId !== task?.id) {
+      onNavigate(entry.taskId, false);
     } else {
       // 在当前页面，直接滚动到文本块
       if (editor) {
-        const found = scrollToBlock(editor, bookmark.blockId, bookmark.blockCursorOffset);
+        const found = scrollToBlock(editor, entry.blockId, entry.blockCursorOffset);
         if (found) {
           pendingFocusRef.current = null;
         }
@@ -950,8 +1116,42 @@ export default function StickyView({
     }
   };
 
-  const handleBlockBookmarkClick = (bookmark: WindowBookmark) => {
-    focusPendingBookmark(bookmark, { closePopup: true });
+  const handlePendingEntryClick = (entry: PendingQueueEntry) => {
+    focusPendingEntry(entry, { closePopup: true });
+  };
+
+  const clearTimedBlockFromTask = async (entry: PendingQueueEntry) => {
+    if (!entry.blockId || !entry.isTimed) {
+      return;
+    }
+    if (entry.taskId === task?.id && editor) {
+      clearTimingOnBlockById(editor, entry.blockId);
+      return;
+    }
+    const detail = await window.api.invoke("task:get", { id: entry.taskId });
+    if (!detail) {
+      return;
+    }
+    const updated = updateBlockTimingInBlocks(detail.blocks, entry.blockId, {
+      dueAt: null
+    });
+    if (!updated.changed) {
+      return;
+    }
+    await window.api.invoke("task:update", { id: entry.taskId, blocks: updated.blocks });
+  };
+
+  const removePendingEntry = async (entry: PendingQueueEntry) => {
+    if (entry.isManual) {
+      removeBookmark(entry.taskId, entry.blockId, entry.blockCursorOffset);
+    }
+    if (entry.isTimed) {
+      try {
+        await clearTimedBlockFromTask(entry);
+      } catch (error) {
+        alert(errorToMessage(error, "移除时间失败，请稍后重试"));
+      }
+    }
   };
 
   const buildBookmarkPathText = (ancestorsChain: Task[], currentTitle: string) => {
@@ -987,6 +1187,24 @@ export default function StickyView({
     } catch {
       bookmarkPathCacheRef.current[bookmark.taskId] = fallback;
     }
+  };
+
+  const applyRelativeDueTime = (blockId: string, minutes: number) => {
+    if (!editor) {
+      return;
+    }
+    const now = Date.now();
+    setTimingNow(now);
+    setTimingOnBlockById(editor, blockId, {
+      timestamp: now + minutes * 60 * 1000
+    });
+  };
+
+  const openBlockTimeModal = (blockId: string, currentTimestamp?: number) => {
+    setTimeModalState({
+      blockId,
+      timestamp: currentTimestamp ?? Date.now()
+    });
   };
 
   const handleContextMenu = async (event: React.MouseEvent) => {
@@ -1149,6 +1367,10 @@ export default function StickyView({
     } else if (nodeName === "paragraph" && $from.node(-1)?.type.name === "listItem") {
       nodeName = "listItem";
     }
+    const contextRawPos = typeof pendingBlockBookmarkPosRef.current === "number"
+      ? pendingBlockBookmarkPosRef.current
+      : editor.state.selection.from;
+    const timingTarget = resolveTimedContextTarget(contextRawPos) ?? getTimedNodeSelectionSnapshot(editor);
 
     const priorityMenuItem = {
       label: "优先级",
@@ -1180,6 +1402,53 @@ export default function StickyView({
       ]
     };
 
+    const blockTimeMenuItems = timingTarget
+      ? [
+          {
+            label: "设置截止时间...",
+            children: [
+              {
+                label: "5分钟后截止",
+                action: () => applyRelativeDueTime(timingTarget.blockId, 5)
+              },
+              {
+                label: "10分钟后截止",
+                action: () => applyRelativeDueTime(timingTarget.blockId, 10)
+              },
+              {
+                label: "30分钟后截止",
+                action: () => applyRelativeDueTime(timingTarget.blockId, 30)
+              },
+              {
+                label: "1小时后截止",
+                action: () => applyRelativeDueTime(timingTarget.blockId, 60)
+              },
+              {
+                label: "2小时后截止",
+                action: () => applyRelativeDueTime(timingTarget.blockId, 120)
+              },
+              {
+                label: "自定义截止时间...",
+                action: () => openBlockTimeModal(timingTarget.blockId, timingTarget.dueAt ?? Date.now())
+              }
+            ]
+          },
+          {
+            label: "清除截止时间",
+            disabled: !timingTarget.dueAt,
+            action: () => {
+              setTimingNow(Date.now());
+              clearTimingOnBlockById(editor, timingTarget.blockId);
+            }
+          }
+        ]
+      : [
+          {
+            label: "设置截止时间...",
+            disabled: true
+          }
+        ];
+
     onShowMenu({
       x: event.clientX,
       y: event.clientY,
@@ -1207,6 +1476,7 @@ export default function StickyView({
               }
             ]
           : []),
+        ...blockTimeMenuItems,
         priorityMenuItem,
         toggleCheckedMenuItem
       ]
@@ -1225,39 +1495,110 @@ export default function StickyView({
   }, [stickyBackground]);
 
   const taskBookmarks = bookmarks.filter((bookmark) => !bookmark.blockId);
-  const pendingBookmarks = bookmarks.filter((bookmark) => bookmark.blockId && !hiddenPendingTaskIds[bookmark.taskId]);
+  const manualPendingBookmarks = useMemo(
+    () => bookmarks.filter((bookmark) => bookmark.blockId && !hiddenPendingTaskIds[bookmark.taskId]),
+    [bookmarks, hiddenPendingTaskIds]
+  );
+  const { timedQueueEntries, allQueueEntries } = useMemo(() => {
+    const timedEntryMap = new Map<string, PendingQueueEntry>();
+    timedBlocks.forEach((timedBlock) => {
+      const baseKey = buildTimedBlockBaseKey(timedBlock);
+      timedEntryMap.set(baseKey, {
+        key: baseKey,
+        taskId: timedBlock.taskId,
+        title: timedBlock.taskTitle,
+        blockId: timedBlock.blockId,
+        blockContent: timedBlock.blockContent,
+        blockType: timedBlock.blockType,
+        dueAt: timedBlock.dueAt,
+        isManual: false,
+        isTimed: true
+      });
+    });
+
+    const mergedTimedKeys = new Set<string>();
+    const manualEntries: PendingQueueEntry[] = [];
+    manualPendingBookmarks.forEach((bookmark) => {
+      if (!bookmark.blockId) {
+        return;
+      }
+      const baseKey = `${bookmark.taskId}_${bookmark.blockId}`;
+      const matchedTimedEntry = timedEntryMap.get(baseKey);
+      if (matchedTimedEntry && !mergedTimedKeys.has(baseKey)) {
+        matchedTimedEntry.isManual = true;
+        matchedTimedEntry.blockCursorOffset = bookmark.blockCursorOffset ?? matchedTimedEntry.blockCursorOffset;
+        matchedTimedEntry.blockContent = bookmark.blockContent || matchedTimedEntry.blockContent;
+        matchedTimedEntry.blockType = bookmark.blockType || matchedTimedEntry.blockType;
+        matchedTimedEntry.title = bookmark.title || matchedTimedEntry.title;
+        mergedTimedKeys.add(baseKey);
+        return;
+      }
+      manualEntries.push({
+        key: buildPendingBookmarkKey(bookmark),
+        taskId: bookmark.taskId,
+        title: bookmark.title,
+        blockId: bookmark.blockId,
+        blockCursorOffset: bookmark.blockCursorOffset,
+        blockContent: bookmark.blockContent || "未命名内容",
+        blockType: bookmark.blockType,
+        isManual: true,
+        isTimed: false
+      });
+    });
+
+    const timedEntries = Array.from(timedEntryMap.values()).sort((left, right) => compareTimedQueueEntries(left, right, timingNow));
+    return {
+      timedQueueEntries: timedEntries,
+      allQueueEntries: [...timedEntries, ...manualEntries]
+    };
+  }, [manualPendingBookmarks, timedBlocks, timingNow]);
+  const visiblePendingEntries = useMemo(() => {
+    if (pendingFilter === "today") {
+      return timedQueueEntries.filter((entry) => {
+        const dueAt = getTimedBlockDueAt(entry);
+        return Boolean(dueAt !== null && isTimestampInToday(dueAt, timingNow));
+      });
+    }
+    if (pendingFilter === "soon") {
+      return timedQueueEntries.filter((entry) => {
+        const dueAt = getTimedBlockDueAt(entry);
+        return Boolean(dueAt !== null && isTimestampWithinWindow(dueAt, timingNow, 60 * 60 * 1000));
+      });
+    }
+    return allQueueEntries;
+  }, [allQueueEntries, pendingFilter, timedQueueEntries, timingNow]);
   const activePendingIndex = activePendingKey
-    ? pendingBookmarks.findIndex((bookmark) => buildPendingBookmarkKey(bookmark) === activePendingKey)
+    ? visiblePendingEntries.findIndex((entry) => entry.key === activePendingKey)
     : -1;
 
   useEffect(() => {
-    if (pendingBookmarks.length === 0) {
+    if (visiblePendingEntries.length === 0) {
       if (activePendingKey !== null) {
         setActivePendingKey(null);
       }
       return;
     }
-    if (activePendingKey && pendingBookmarks.some((bookmark) => buildPendingBookmarkKey(bookmark) === activePendingKey)) {
+    if (activePendingKey && visiblePendingEntries.some((entry) => entry.key === activePendingKey)) {
       return;
     }
-    setActivePendingKey(buildPendingBookmarkKey(pendingBookmarks[0]));
-  }, [activePendingKey, pendingBookmarks]);
+    setActivePendingKey(visiblePendingEntries[0].key);
+  }, [activePendingKey, visiblePendingEntries]);
 
   const focusPendingByDelta = (delta: number) => {
-    if (pendingBookmarks.length === 0) {
+    if (visiblePendingEntries.length === 0) {
       return;
     }
-    const keyList = pendingBookmarks.map((bookmark) => buildPendingBookmarkKey(bookmark));
+    const keyList = visiblePendingEntries.map((entry) => entry.key);
     const currentIndex = activePendingKey ? keyList.indexOf(activePendingKey) : -1;
     const nextIndex =
       currentIndex === -1
-        ? delta >= 0 ? 0 : pendingBookmarks.length - 1
-        : (currentIndex + delta + pendingBookmarks.length) % pendingBookmarks.length;
-    const next = pendingBookmarks[nextIndex];
+        ? delta >= 0 ? 0 : visiblePendingEntries.length - 1
+        : (currentIndex + delta + visiblePendingEntries.length) % visiblePendingEntries.length;
+    const next = visiblePendingEntries[nextIndex];
     if (!next) {
       return;
     }
-    focusPendingBookmark(next, { closePopup: false });
+    focusPendingEntry(next, { closePopup: false });
   };
 
   if (!task) {
@@ -1265,16 +1606,16 @@ export default function StickyView({
   }
 
   const reorderPendingBookmarks = (fromKey: string, toKey: string) => {
-    if (fromKey === toKey || pendingBookmarks.length <= 1) {
+    if (fromKey === toKey || manualPendingBookmarks.length <= 1) {
       return;
     }
-    const pendingKeys = pendingBookmarks.map((bookmark) => buildPendingBookmarkKey(bookmark));
+    const pendingKeys = manualPendingBookmarks.map((bookmark) => buildPendingBookmarkKey(bookmark));
     const fromIndex = pendingKeys.indexOf(fromKey);
     const toIndex = pendingKeys.indexOf(toKey);
     if (fromIndex === -1 || toIndex === -1) {
       return;
     }
-    const nextPending = pendingBookmarks.slice();
+    const nextPending = manualPendingBookmarks.slice();
     const [moved] = nextPending.splice(fromIndex, 1);
     const insertIndex = toIndex;
     nextPending.splice(insertIndex, 0, moved);
@@ -1310,23 +1651,56 @@ export default function StickyView({
           style={{ left: pendingPopup.x, top: pendingPopup.y }}
           onClick={(event) => event.stopPropagation()}
         >
-          {pendingBookmarks.map((bookmark, index) => {
-            const pendingKey = buildPendingBookmarkKey(bookmark);
-            const isDragging = draggingPendingKey === pendingKey;
-            const isDragOver = dragOverPendingKey === pendingKey && draggingPendingKey !== pendingKey;
+          <div className="sticky-pending-tabs">
+            <button
+              type="button"
+              className={`sticky-pending-tab${pendingFilter === "all" ? " is-active" : ""}`}
+              onClick={() => setPendingFilter("all")}
+            >
+              全部
+            </button>
+            <button
+              type="button"
+              className={`sticky-pending-tab${pendingFilter === "today" ? " is-active" : ""}`}
+              onClick={() => setPendingFilter("today")}
+            >
+              今天
+            </button>
+            <button
+              type="button"
+              className={`sticky-pending-tab${pendingFilter === "soon" ? " is-active" : ""}`}
+              onClick={() => setPendingFilter("soon")}
+            >
+              1 小时内
+            </button>
+          </div>
+          {visiblePendingEntries.length === 0 ? (
+            <div className="sticky-pending-empty">当前筛选下没有待处理条目</div>
+          ) : visiblePendingEntries.map((entry, index) => {
+            const pendingKey = entry.key;
+            const timingBadge = entry.isTimed ? formatBlockTimingBadge(entry, timingNow) : null;
+            const canDrag = entry.isManual && !entry.isTimed;
+            const isDragging = canDrag && draggingPendingKey === pendingKey;
+            const isDragOver = canDrag && dragOverPendingKey === pendingKey && draggingPendingKey !== pendingKey;
             const isActive = activePendingKey === pendingKey;
             return (
               <div
                 key={pendingKey}
                 className={`sticky-pending-item${isDragging ? " is-dragging" : ""}${isDragOver ? " is-drag-over" : ""}${isActive ? " is-active" : ""}`}
-                draggable
+                draggable={canDrag}
                 onDragStart={(event) => {
+                  if (!canDrag) {
+                    return;
+                  }
                   setDraggingPendingKey(pendingKey);
                   setDragOverPendingKey(pendingKey);
                   event.dataTransfer.effectAllowed = "move";
                   event.dataTransfer.setData("text/plain", pendingKey);
                 }}
                 onDragOver={(event) => {
+                  if (!canDrag) {
+                    return;
+                  }
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "move";
                   if (dragOverPendingKey !== pendingKey) {
@@ -1334,6 +1708,9 @@ export default function StickyView({
                   }
                 }}
                 onDrop={(event) => {
+                  if (!canDrag) {
+                    return;
+                  }
                   event.preventDefault();
                   const sourceKey = draggingPendingKey || event.dataTransfer.getData("text/plain");
                   if (sourceKey) {
@@ -1353,17 +1730,27 @@ export default function StickyView({
                 <button
                   type="button"
                   className="sticky-pending-content"
-                  onClick={() => handleBlockBookmarkClick(bookmark)}
-                  title={bookmark.blockContent}
+                  onClick={() => handlePendingEntryClick(entry)}
+                  title={entry.blockContent}
                 >
-                  <div className="sticky-pending-text">{bookmark.blockContent}</div>
-                  <div className="sticky-pending-meta">{bookmark.title}</div>
+                  {timingBadge ? (
+                    <div className="sticky-pending-timing sticky-pending-timing-due">
+                      {timingBadge.text}
+                    </div>
+                  ) : null}
+                  <div className="sticky-pending-text">{entry.blockContent}</div>
+                  <div className="sticky-pending-meta">
+                    {entry.title}
+                    {entry.isManual && !entry.isTimed ? " · 手动待处理" : ""}
+                  </div>
                 </button>
                 <button
                   type="button"
                   className="sticky-pending-remove"
                   aria-label="移除"
-                  onClick={() => removeBookmark(bookmark.taskId, bookmark.blockId, bookmark.blockCursorOffset)}
+                  onClick={() => {
+                    void removePendingEntry(entry);
+                  }}
                 >
                   ×
                 </button>
@@ -1458,7 +1845,7 @@ export default function StickyView({
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 flex-1 flex items-center gap-1">
             <Breadcrumb ancestors={ancestors} current={task} onNavigate={onNavigate} />
-            <PriorityDropdown editor={editor} variant="light" onNavigate={onNavigate} currentTaskId={task.id} />
+            <PriorityDropdown editor={editor} variant="light" onNavigate={(taskId) => onNavigate(taskId, true)} currentTaskId={task.id} />
           </div>
           <HistoryNav
             variant="light"
@@ -1468,7 +1855,7 @@ export default function StickyView({
             onForward={onHistoryForward}
           />
         </div>
-        {taskBookmarks.length > 0 || pendingBookmarks.length > 0 ? (
+        {taskBookmarks.length > 0 || allQueueEntries.length > 0 ? (
           <div className="no-drag sticky-bookmark-strip" aria-label="书签栏">
             {taskBookmarks.map((bookmark) => (
               <div key={bookmark.taskId} className="sticky-bookmark-item">
@@ -1500,7 +1887,7 @@ export default function StickyView({
                 </button>
               </div>
             ))}
-            {pendingBookmarks.length > 0 ? (
+            {allQueueEntries.length > 0 ? (
               <div className="sticky-bookmark-item">
                 <button
                   type="button"
@@ -1514,7 +1901,7 @@ export default function StickyView({
                   }}
                   title="待处理条目"
                 >
-                  待处理 ({pendingBookmarks.length})
+                  待处理 ({allQueueEntries.length})
                 </button>
               </div>
             ) : null}
@@ -1540,7 +1927,7 @@ export default function StickyView({
       </div>
       <div className="flex items-center justify-between text-[11px] text-black/50">
         <span>{footerText}</span>
-        {pendingBookmarks.length > 0 ? (
+        {visiblePendingEntries.length > 0 ? (
           <div className="no-drag sticky-pending-focus-nav" aria-label="待处理聚焦跳转">
             <button
               type="button"
@@ -1551,7 +1938,7 @@ export default function StickyView({
               ◀
             </button>
             <span className="sticky-pending-focus-text">
-              待处理 {activePendingIndex >= 0 ? activePendingIndex + 1 : 0}/{pendingBookmarks.length}
+              待处理 {activePendingIndex >= 0 ? activePendingIndex + 1 : 0}/{visiblePendingEntries.length}
             </span>
             <button
               type="button"
@@ -1566,6 +1953,23 @@ export default function StickyView({
           <span>⋯</span>
         )}
       </div>
+      <BlockTimeModal
+        open={Boolean(timeModalState)}
+        initialTimestamp={timeModalState?.timestamp ?? Date.now()}
+        onCancel={() => setTimeModalState(null)}
+        onSubmit={(value) => {
+          if (!editor || !timeModalState) {
+            setTimeModalState(null);
+            return;
+          }
+          setTimingNow(Date.now());
+          const updated = setTimingOnBlockById(editor, timeModalState.blockId, value);
+          setTimeModalState(null);
+          if (!updated) {
+            alert("当前文本块已不存在，无法设置时间");
+          }
+        }}
+      />
     </div>
   );
 }

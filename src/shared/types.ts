@@ -103,6 +103,15 @@ export interface PriorityBlock {
   taskId: string;
   taskTitle: string;
   blockId: string;
-  priority: number;
+  priority: "high" | "medium" | "low";
   text: string;
+}
+
+export interface TimedBlock {
+  taskId: string;
+  taskTitle: string;
+  blockId: string;
+  blockType: string;
+  blockContent: string;
+  dueAt?: number;
 }

@@ -1,7 +1,8 @@
 import { v4 as uuidv4 } from "uuid";
-import type { JsonValue, Task, TaskCreateInput, TaskUpdateInput } from "../../shared/types";
+import type { JsonValue, Task, TaskCreateInput, TaskUpdateInput, TimedBlock } from "../../shared/types";
 import { getDb } from "./index";
 import { extractPlainText } from "../utils/blocks";
+import { collectTimedBlocksFromTask } from "../../shared/blockTiming";
 
 const DEFAULT_BLOCKS: JsonValue = {
   type: "doc",
@@ -329,4 +330,44 @@ export function getPriorityBlocks(): import("../../shared/types").PriorityBlock[
     const valB = priorityMap[String(b.priority)] || 99;
     return valA - valB;
   });
+}
+
+export function listTimedBlocksByRootTaskId(rootTaskId: string): TimedBlock[] {
+  const root = getTaskById(rootTaskId);
+  if (!root || root.isDeleted || root.isArchived || root.isCompleted) {
+    return [];
+  }
+
+  const db = getDb();
+  const getChildrenStmt = db.prepare(
+    `SELECT t.*
+     FROM tasks t
+     JOIN edges e ON t.id = e.child_task_id
+     WHERE e.parent_task_id = ?
+       AND t.is_deleted = 0
+       AND t.is_archived = 0
+       AND t.is_completed = 0
+     ORDER BY e.created_at ASC`
+  );
+
+  const queue: Task[] = [root];
+  const visited = new Set<string>();
+  const results: TimedBlock[] = [];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || visited.has(current.id)) {
+      continue;
+    }
+    visited.add(current.id);
+    results.push(...collectTimedBlocksFromTask(current));
+    const children = getChildrenStmt.all(current.id).map(rowToTask);
+    children.forEach((child) => {
+      if (!visited.has(child.id)) {
+        queue.push(child);
+      }
+    });
+  }
+
+  return results;
 }

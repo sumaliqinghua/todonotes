@@ -144,6 +144,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
   const refreshLibraryRequestIdRef = useRef(0);
 
   const currentTaskId = navPath[navPath.length - 1];
+  const currentRootTaskId = navPath[0] ?? rootTaskId;
   useEffect(() => {
     currentTaskIdRef.current = currentTaskId ?? null;
   }, [currentTaskId]);
@@ -786,6 +787,16 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
   }, []);
 
   useEffect(() => {
+    const interval = window.setInterval(() => {
+      const taskId = currentTaskIdRef.current;
+      if (taskId) {
+        void loadTask(taskId);
+      }
+    }, 120000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     if (windowType === "library") {
       refreshLibrary(searchQuery, libraryTab);
     }
@@ -822,6 +833,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       <div className="h-screen overflow-hidden" onClick={() => showMenu(null)}>
         <StickyView
           windowId={windowId}
+          rootTaskId={currentRootTaskId}
           task={currentTask}
           ancestors={ancestors}
           onNavigate={handleNavigate}

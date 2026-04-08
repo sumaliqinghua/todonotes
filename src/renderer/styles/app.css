@@ -478,6 +478,30 @@
     overflow-y: auto;
   }
 
+  .sticky-pending-tabs {
+    @apply sticky top-0 z-10 flex items-center gap-1 border-b px-2 py-2;
+    background: color-mix(in srgb, var(--sticky-panel-color, #f6e8a6) 88%, #ffffff 12%);
+    border-color: rgba(60, 44, 10, 0.12);
+  }
+
+  .sticky-pending-tab {
+    @apply rounded-full px-2 py-1 text-[11px] text-black/65 transition;
+  }
+
+  .sticky-pending-tab:hover {
+    background: rgba(60, 44, 10, 0.08);
+  }
+
+  .sticky-pending-tab.is-active {
+    background: rgba(60, 44, 10, 0.14);
+    color: rgba(0, 0, 0, 0.8);
+    font-weight: 600;
+  }
+
+  .sticky-pending-empty {
+    @apply px-3 py-4 text-center text-[12px] text-black/50;
+  }
+
   .sticky-pending-item {
     @apply flex items-stretch border-b last:border-b-0;
     border-color: rgba(60, 44, 10, 0.16);
@@ -518,6 +542,15 @@
 
   .sticky-pending-meta {
     @apply mt-1 text-[10px] text-black/55;
+  }
+
+  .sticky-pending-timing {
+    @apply mb-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold;
+  }
+
+  .sticky-pending-timing-due {
+    background: rgba(220, 38, 38, 0.12);
+    color: rgba(185, 28, 28, 0.88);
   }
 
   .sticky-pending-remove {
@@ -702,6 +735,35 @@
 
 .ProseMirror p {
   margin: 0 0 0.3em;
+}
+
+.ProseMirror [data-block-time-render-host="true"] {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.ProseMirror .block-time-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.08rem 0.45rem;
+  font-size: 0.7rem;
+  line-height: 1.25;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ProseMirror .has-block-time-due > .block-time-badge {
+  background: rgba(248, 113, 113, 0.14);
+  color: rgba(248, 113, 113, 0.95);
+}
+
+.sticky-surface .ProseMirror .has-block-time-due > .block-time-badge {
+  background: rgba(220, 38, 38, 0.12);
+  color: rgba(185, 28, 28, 0.9);
 }
 
 .ProseMirror h1,
