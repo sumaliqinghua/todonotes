@@ -1,5 +1,369 @@
 # 实现记录（Records）
 
+## [2026-04-29] M0.13-R31 切页后父任务内容被子任务内容覆盖修复
+- **What（做了什么）**：
+  - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：
+    - 将原来的单个 `saveTimer` 改为 `saveTimersRef`。`saveTimersRef` 是按任务 ID 存储的防抖保存定时器表，避免不同任务页面共用同一个延迟保存槽位。
+    - 新增 `latestTaskIdRef`，用于在编辑器 `onUpdate` 发生时读取当时正在编辑的任务 ID。
+    - `onUpdate` 现在立刻捕获 `taskId` 和 `editor.getJSON()` 得到的 `blocks`，延迟 400ms 后保存捕获到的内容，不再在延迟回调里重新读取已经切页后的编辑器内容。
+    - `useEditor` 增加 `[task?.id]` 依赖；`EditorContent` 增加 `key={task.id}`，任务切换时会重建编辑器实例和承载节点，避免撤销栈跨任务页面复用。
+    - 新增 `replaceEditorContentWithoutSaving`。这个函数用于程序化加载任务内容：执行 `setContent` 前临时打开保存屏蔽，执行完立即关闭，避免加载远端内容被当作用户编辑保存，也避免误吞下一次真实编辑。
+  - 修改 [src/renderer/components/TaskDetail.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/TaskDetail.tsx)：
+    - 将 `onUpdateBlocks` 参数从只接收 `blocks` 改为接收 `taskId` 和 `blocks`。
+    - 与 Sticky 相同，改为按任务 ID 分桶防抖保存，并在更新发生时捕获当时的 `taskId` 和 `blocks`。
+    - 同样为 `useEditor` 增加 `[task?.id]` 依赖，为 `EditorContent` 增加 `key={task.id}`，隔离不同任务页面的编辑器实例和撤销栈。
+    - 同样新增 `replaceEditorContentWithoutSaving`，区分“程序化内容替换”和“用户真实编辑”。
+  - 修改 [src/renderer/App.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/App.tsx)：
+    - `TaskDetail` 的 `onUpdateBlocks` 现在直接使用子组件传回的 `taskId` 调用 `task:update`，不再使用当前 React 状态里的 `currentTask.id`。
+- **Why（为什么这么做）**：
+  - 用户复现路径是：从根页切到子任务 `SDKdemo`，再点击面包屑根目录或按 `Alt + 左箭头` 返回后，根页内容变成子任务内容；并且 `Ctrl+Z` 能撤回。
+  - 这说明问题不是书签本身，而是编辑器状态和保存链路串页：切页前排队的延迟保存，在触发时读取到了切页后的编辑器内容，或者撤销栈跨页面把子页内容带回了父页。
+  - 原逻辑在延迟回调触发时才调用 `editor.getJSON()`，此时同一个编辑器实例可能已经加载了另一个任务的内容；主窗口 `TaskDetail` 还会通过当前 `currentTask.id` 保存，切页后这个值也可能已变化。
+- **How（怎么实现的）**：
+  - 修复后的保存数据流：
+    - 用户编辑根页 → `onUpdate` 立即捕获 `taskId=根页ID` 和当时的 `blocks`
+    - 用户马上切到子任务 → 编辑器实例重建，子任务有独立内容和撤销栈
+    - 400/500ms 后根页保存定时器触发 → 仍然用捕获到的 `根页ID + 根页blocks` 保存
+    - 子任务编辑产生自己的 `子任务ID + 子任务blocks` 保存定时器，不会覆盖根页
+  - 关键概念说明：
+    - `taskId`：任务的唯一 ID，用来决定这次 blocks 应该写入哪一条任务记录。
+    - `blocks`：Tiptap 编辑器正文的 JSON 数据，包含段落、列表、checkbox、子任务链接块等正文结构。
+    - 延迟保存：用户输入后等 400/500ms 再写库，减少频繁保存；这次 bug 的根因是延迟回调不能再读取已经切页后的“当前编辑器内容”。
+    - 程序化加载：代码调用 `setContent` 把数据库里的 blocks 放进编辑器，这不是用户输入，不应该触发保存。
+- **用户须知**：
+  - 从根页进入子任务，再通过面包屑或 `Alt + 左箭头` 返回时，根页内容不应再变成子任务内容。
+  - `Ctrl+Z` 的撤销范围现在跟随当前任务页，不应该跨任务页面撤销。
+  - 如果已经被错误写入过的数据，仍需要通过现有撤销、历史备份或手动编辑恢复；本次修复阻止后续继续污染。
+- **已知限制**：
+  - 本次没有新增数据库级历史版本恢复功能。
+  - 如果错误数据已经持久化，代码修复不会自动推断原文并恢复。
+- **关联假设**：
+  - 无。用户提供了明确复现路径和现象。
+
+## [2026-04-29] M0.13-R29 移除 Sticky 根页默认书签
+- **What（做了什么）**：
+  - 修改 [src/main/windowManager.ts](/Users/lmy/proj/Others/todonotes/src/main/windowManager.ts)：
+    - 调整 `getInitialStickyBookmarks`。这个函数用于决定 Sticky 窗口创建时拿什么作为初始书签；现在当持久化书签和窗口状态书签都为空时返回空数组，不再自动生成 `{ taskId: rootTaskId, title: "" }`。
+    - 新增 `sanitizeStickyBookmarks`。这个函数用于过滤 Sticky 书签数组；规则是：如果某条书签的 `taskId` 等于当前 Sticky 的 `rootTaskId`，并且没有 `blockId`，就把它视为“根页页面书签”并移除。
+    - 在 `createTaskWindow` 的 Sticky 初始书签链路使用 `sanitizeStickyBookmarks`，确保新建和恢复窗口都不会带出根页页面书签。
+    - 在 `updateWindowState` 的 Sticky 书签更新链路使用 `sanitizeStickyBookmarks`，确保前端或历史状态传回来的根页页面书签不会被写回 `sticky_bookmarks` 表，也不会广播给同根 Sticky 窗口。
+  - 修改 [src/renderer/App.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/App.tsx)：
+    - 新增渲染层 `sanitizeStickyBookmarks`，在加载窗口状态时清理历史根页页面书签。
+    - 如果加载时发现书签被清理，会调用 `window:updateState` 把清理后的结果写回主进程状态，避免旧数据继续显示。
+  - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：
+    - 新增 `canBookmarkCurrentTask = task.id !== rootTaskId` 判断。
+    - 链接块右键菜单和普通正文右键菜单都只在 `canBookmarkCurrentTask` 为 true 时显示“添加当前页到书签”。
+    - `rootTaskId` 是当前 Sticky 窗口绑定的根任务 ID；`task.id` 是当前正在浏览的任务 ID；两者相等表示用户就在 Sticky 根页。
+- **Why（为什么这么做）**：
+  - 用户反馈默认出现的“最上一级的书签”跳转后有 bug，而且这个入口本身不再需要。
+  - 只隐藏前端展示不够稳：旧根页书签可能来自主进程默认注入、历史 `sticky_bookmarks` 持久化数据、窗口状态恢复、同根窗口共享广播。必须在这些写入和同步链路都过滤，才能避免删除后又出现。
+  - 保留子任务页页面书签，是因为用户只要求禁止“最顶层页面”添加书签；子任务页面书签仍然能承担快速跳转到深层任务的作用。
+- **How（怎么实现的）**：
+  - 核心数据流：
+    - 打开 Sticky → `createTaskWindow` 读取持久化书签 → `sanitizeStickyBookmarks(rootTaskId, bookmarks)` 移除根页页面书签 → 渲染层显示过滤后的书签。
+    - 历史窗口状态加载 → `App` 再执行一次同样过滤 → 如有变化则调用 `window:updateState` 回写主进程。
+    - 用户修改书签 → `updateWindowState` 过滤后持久化 → 同根 Sticky 窗口收到过滤后的共享广播。
+  - 关键字段说明：
+    - `rootTaskId`：Sticky 窗口的共享根任务 ID，同一根任务下多个 Sticky 共享书签和皮肤状态。
+    - `taskId`：某条书签指向的任务 ID。
+    - `blockId`：可选的文本块 ID；没有 `blockId` 表示页面级书签，有 `blockId` 表示定位到某个文本块。
+    - “根页页面书签”：`taskId === rootTaskId` 且没有 `blockId` 的书签。
+- **用户须知**：
+  - 新开的 Sticky 不会再自动出现根任务书签。
+  - Sticky 根页右键不会再显示“添加当前页到书签”。
+  - 进入子任务页后，仍可右键添加当前页到书签，并可通过书签栏跳回该子任务。
+- **已知限制**：
+  - 本次只调整 Sticky 便签，不调整 Library 主窗口。
+  - 本次只过滤根页“页面级”书签；带 `blockId` 的文本块定位记录按现有数据保留。
+- **关联假设**：
+  - 无。用户已确认“最顶层页面”按当前 Sticky 的 `rootTaskId` 处理。
+
+## [2026-04-28] Dev-hotfix2 开发启动清理 Electron Node 模式环境变量
+- **What（做了什么）**：
+  - 新增 [scripts/start-electron-dev.cjs](/Users/lmy/proj/Others/todonotes/scripts/start-electron-dev.cjs)：
+    - 读取 `electron` 包导出的 Electron 可执行文件路径。
+    - 复制当前环境变量后删除 `ELECTRON_RUN_AS_NODE`。
+    - 显式设置 `NODE_ENV=development`。
+    - 使用清理后的环境启动 Electron 子进程，并透传 `SIGINT`、`SIGTERM`，确保 `concurrently -k` 停止开发进程时 Electron 也能退出。
+  - 修改 [package.json](/Users/lmy/proj/Others/todonotes/package.json)：
+    - `dev` 脚本最后一步从 `electron .` 改为 `node scripts/start-electron-dev.cjs .`。
+- **Why（为什么这么做）**：
+  - 用户启动开发环境时报错：`TypeError: Cannot read properties of undefined (reading 'whenReady')`，报错位置是 `dist/main/main.js` 的 `electron_1.app.whenReady()`。
+  - 现场环境里存在 `ELECTRON_RUN_AS_NODE=1`。这个变量会强制 Electron 以 Node 模式运行。
+  - 在 Node 模式下，`require("electron")` 返回的是 Electron 可执行文件路径字符串，而不是包含 `app`、`BrowserWindow`、`ipcMain` 的 Electron 主进程 API 对象，所以 `electron_1.app` 是 `undefined`。
+  - 这个问题不应该靠用户每次手动 `unset ELECTRON_RUN_AS_NODE`，开发脚本应自行隔离这种环境污染。
+- **How（怎么实现的）**：
+  - 启动链路从：
+    - `npm run dev` → `wait-on ... && electron .`
+  - 改为：
+    - `npm run dev` → `wait-on ... && node scripts/start-electron-dev.cjs .`
+    - `start-electron-dev.cjs` 删除 `ELECTRON_RUN_AS_NODE`
+    - 再启动 Electron 可执行文件
+    - 主进程中 `require("electron").app.whenReady()` 恢复可用
+  - 关键概念说明：
+    - `ELECTRON_RUN_AS_NODE`：Electron 官方支持的环境变量。值为 `1` 时，Electron 会像 Node.js 一样运行脚本，适合少数工具场景，但不适合启动桌面应用主进程。
+    - `app.whenReady()`：Electron 主进程 API，表示 Electron 初始化完成后再创建窗口、注册 IPC、初始化数据库。
+  - 验证：
+    - `ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron --version` 输出 `v18.18.2`，说明原始命令被强制成 Node 模式。
+    - `ELECTRON_RUN_AS_NODE=1 node scripts/start-electron-dev.cjs --version` 输出 `v28.3.3`，说明包装器已清理变量并按 Electron 模式运行。
+    - `npm test` 通过，8 个测试文件、33 个测试用例全部通过。
+    - `npx tsc -p tsconfig.main.json --noEmit` 通过。
+    - `npx tsc -p tsconfig.preload.json --noEmit` 通过。
+    - `npx tsc -p tsconfig.renderer.json --noEmit` 通过。
+- **用户须知**：
+  - 后续直接运行 `npm run dev` 即可，不需要手动清理 `ELECTRON_RUN_AS_NODE`。
+  - 如果直接在终端执行 `electron .`，仍可能受当前 shell 里的 `ELECTRON_RUN_AS_NODE=1` 影响；建议通过 `npm run dev` 或 `node scripts/start-electron-dev.cjs .` 启动开发应用。
+- **已知限制**：
+  - 本修复只作用于开发启动脚本，不改变生产打包逻辑。
+- **关联假设**：
+  - 无。
+
+## [2026-04-28] M0.13-R26-hotfix2 等待中暂停/恢复进行中计时
+- **What（做了什么）**：
+  - 修改 [src/shared/blockStatus.ts](/Users/lmy/proj/Others/todonotes/src/shared/blockStatus.ts)：
+    - 新增 `computeRemainingStatusDurationMinutes`。这个函数用于计算状态块还剩多少预计时长。
+    - 入参包含 `workStatus`（当前状态）、`workStatusUpdatedAt`（状态最近更新时间）、`plannedDurationMinutes`（预计或剩余时长）。
+    - 当状态是 `doing`（进行中）时，它会用“预计时长 - 已经过的分钟数”得到剩余分钟，最少保留 1 分钟。
+    - 当状态不是 `doing` 时，它直接返回已有 `plannedDurationMinutes`，这让 `waiting`（等待中）可以保存暂停时的剩余时长。
+  - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：
+    - `openWaitingModal` 继续在进行中切到等待中时保存剩余时长。
+    - `openDoingModal` 新增恢复逻辑：如果当前块是等待中，切回进行中时直接用等待中保存的剩余时长写入 `workStatus: "doing"`，不再弹出默认 25 分钟窗口。
+    - 非等待状态切到进行中仍保持原交互：打开预计时长窗口，让用户填写 15 / 25 / 45 / 60 / 90 分钟或自定义分钟。
+  - 修改 [src/renderer/utils/__tests__/blockStatus.test.ts](/Users/lmy/proj/Others/todonotes/src/renderer/utils/__tests__/blockStatus.test.ts)：
+    - 新增单元测试，覆盖“进行中 45 分钟消耗 10 分钟后剩余 35 分钟”、“超时后最少保留 1 分钟”、“等待中保存 35 分钟不会继续扣减”。
+- **Why（为什么这么做）**：
+  - 用户明确要求“等待中暂停计时（如果有计时的话），等待中改为进行中时恢复计时”。
+  - 之前已有部分暂停能力：进行中转等待中时会把剩余时长写入等待状态。但等待中再切回进行中时仍会打开时长窗口，用户可能误填或回到默认 25 分钟，不符合“恢复计时”的语义。
+  - 现在等待中保存的 `plannedDurationMinutes` 被明确视为“暂停时剩余时长”，恢复进行中时直接使用它，行为更符合计时器暂停/继续的直觉。
+- **How（怎么实现的）**：
+  - 数据流：
+    - 进行中开始时写入 `workStatus: "doing"`、`workStatusUpdatedAt: 当前时间`、`plannedDurationMinutes: 预计分钟`
+    - 切到等待中时调用 `computeRemainingStatusDurationMinutes`
+    - 计算结果写入等待块的 `plannedDurationMinutes`
+    - 等待期间徽标只显示等待原因/回看时间，不根据时间继续扣减 `plannedDurationMinutes`
+    - 再切回进行中时直接写入 `workStatus: "doing"` 和等待中保存的 `plannedDurationMinutes`
+    - `workStatusUpdatedAt` 会被状态写入逻辑刷新为恢复那一刻，从这一刻重新倒计时
+  - 关键字段说明：
+    - `workStatus`：块级人工状态。常用值包括 `todo`（待开始）、`doing`（进行中）、`waiting`（等待中）、`done`（已完成）。
+    - `workStatusUpdatedAt`：状态最近一次写入或切换的毫秒时间戳。进行中倒计时用它作为开始时间。
+    - `plannedDurationMinutes`：在待开始和进行中表示预计/剩余分钟；在等待中表示暂停时保存的剩余分钟。
+  - 验证：
+    - `npm test` 通过，8 个测试文件、33 个测试用例全部通过。
+    - `npx tsc -p tsconfig.main.json --noEmit` 通过。
+    - `npx tsc -p tsconfig.preload.json --noEmit` 通过。
+    - `npx tsc -p tsconfig.renderer.json --noEmit` 通过。
+- **用户须知**：
+  - 从进行中切到等待中时，如果进行中有预计时长，系统会自动保存剩余时长。
+  - 从等待中切回进行中时，会从保存的剩余时长继续倒计时，不会重新弹出预计时长窗口。
+  - 如果等待中本身没有保存剩余时长，切回进行中会按默认 25 分钟处理。
+- **已知限制**：
+  - 剩余时长按分钟粒度计算，少于 1 分钟或已经超时的进行中块切到等待中时会保留 1 分钟，避免恢复后立即显示 0。
+- **关联假设**：
+  - 无。
+
+## [2026-04-28] M0.13-R26-hotfix 底部快捷按钮目标行缓存修复
+- **What（做了什么）**：
+  - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：
+    - 扩展 `lastStatusTargetRef`，不只保存 `blockId`，还保存 `blockPos`（块在 Tiptap 文档里的起始位置）、`blockType`（块类型）和状态字段。
+    - 新增 `cacheStatusTargetFromEditorEvent`，在编辑器内部 `mousedown`、`click` 和外层 `.sticky-editor` 的 `onMouseDown` 中记录用户真实点击到的正文块。
+    - 新增 DOM 优先解析链路：从点击目标向父级查找 `data-node-id`，再反查文档中的可设置状态块。可设置状态块只包括 `paragraph`（普通段落）、`heading`（标题）、`listItem`（普通列表项）、`taskItem`（checkbox 任务项）。
+    - 新增 `statusTargetDomCacheUntilRef`，表示“真实点击 DOM 命中的目标在短时间内优先”。这能阻止按钮抢焦或边界选区把目标覆盖成上一行。
+    - 调整 `resolveStatusContextTarget`：如果传入的位置本身就是目标块起始位置，直接使用该块，不再走会向上一行吸附的 `Selection.near(..., -1)` 锚点兜底。
+    - 底部快捷状态按钮设置状态前，会先按缓存的 `blockPos + blockId` 校验目标仍是同一个块；如果校验失败，才按 `blockId` 重新查找。
+    - 工作台状态切换/跳转文本块时会临时设置 `suppressNextStatusTargetCacheRef`，避免程序化跳转覆盖用户最后光标行缓存。
+- **Why（为什么这么做）**：
+  - 用户反馈：光标在“面试储备”这一行时，点击底部“进行中”却把上一行加入了状态工作台。这说明仅靠 Tiptap 当前选区不可靠，尤其是在列表边界、行首、状态徽标前方或按钮点击导致失焦时，选区可能被解析到上一块。
+  - 只用 `onMouseDown preventDefault` 可以减少按钮抢焦，但不能保证“当前选区”一定等于用户最后点过的那一行。
+  - 这次选择 DOM 点击目标优先，是因为 DOM 节点上的 `data-node-id` 更贴近用户实际点击的行；`selectionUpdate` 只作为兜底，避免再次把目标猜到上一行。
+- **How（怎么实现的）**：
+  - 数据流：
+    - 用户点击正文“面试储备”这一行 → `mousedown/click` 事件进入 `cacheStatusTargetFromEditorEvent`
+    - `cacheStatusTargetFromEditorEvent` 从事件目标向父级查找 `data-node-id`
+    - 根据 `data-node-id` 反查 Tiptap 文档中的 `paragraph/heading/listItem/taskItem`
+    - 写入 `lastStatusTargetRef`
+    - 用户点击底部 `▶` 进行中按钮 → `requireCurrentStatusTarget` 校验缓存目标仍存在
+    - 打开预计时长弹窗 → 确认后 `setStatusOnBlockById` 只更新缓存目标的 `blockId`
+  - 关键机制解释：
+    - `data-node-id`：Tiptap 节点渲染到 DOM 上的唯一标识，用来把用户点击到的网页元素映射回编辑器文档里的正文块。
+    - `blockPos`：正文块在 ProseMirror/Tiptap 文档中的起始位置，用来确认缓存没有漂移到同 ID 的其他块。
+    - `Selection.near(..., -1)`：ProseMirror 的“向左找最近可编辑位置”工具；它在边界场景容易向上一行靠拢，所以本轮不再让已知块起始位置走这条兜底路径。
+  - 验证：
+    - `npm test` 通过，8 个测试文件、32 个测试用例全部通过。
+    - `npx tsc -p tsconfig.main.json --noEmit` 通过。
+    - `npx tsc -p tsconfig.preload.json --noEmit` 通过。
+    - `npx tsc -p tsconfig.renderer.json --noEmit` 通过。
+- **用户须知**：
+  - 底部按钮现在以“最后一次在正文中真实点击过或编辑过的文本行”为目标。
+  - 如果想设置另一行，先点击那一行或把光标放到那一行，再点底部按钮。
+- **已知限制**：
+  - 如果打开便签后还没有在正文里放过光标，底部快捷按钮会提示先把光标放到目标文本行中。
+- **关联假设**：
+  - 无
+
+## [2026-04-28] M0.13-R26 进行中预计时长与底部快捷状态按钮
+- **What（做了什么）**：
+  - 新增 [src/renderer/components/BlockDurationModal.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/BlockDurationModal.tsx)：
+    - 这是一个只填写“预计持续时长（分钟）”的弹窗。
+    - 默认值为 25 分钟，快捷选项为 15 / 25 / 45 / 60 / 90 分钟，也支持自定义正整数分钟。
+  - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：
+    - 右键 `状态标记... -> 进行中` 改为打开预计时长弹窗，确认后写入 `workStatus: "doing"` 和 `plannedDurationMinutes`。
+    - 底部区域新增四个快捷状态按钮：
+      - `▶`：设置为进行中，先填写预计持续时长。
+      - `⏳`：设置为等待中，打开等待原因/回看时间弹窗。
+      - `⏱`：设置为待开始，打开预计开始时间/预计持续时长弹窗。
+      - `✓`：标记为已完成。
+    - 底部快捷按钮只使用当前光标所在文本块；如果当前没有可设置的文本块，会提示“请先把光标放到要设置状态的文本行中”。
+  - 修改 [src/renderer/styles/app.css](/Users/lmy/proj/Others/todonotes/src/renderer/styles/app.css)：
+    - 新增底部快捷状态按钮布局和 hover 样式。
+- **Why（为什么这么做）**：
+  - 进行中倒计时和超时逻辑依赖预计时长；如果设置进行中时不能填预计时长，后续就无法稳定显示剩余时间和超时。
+  - 底部快捷按钮面向高频操作，减少右键菜单层级，但必须依赖当前光标行，避免误改其他文本块。
+- **How（怎么实现的）**：
+  - 右键进行中与底部 `▶` 都走 `BlockDurationModal`，保存后通过 `setStatusOnBlockById` 写入状态。
+  - 底部按钮通过 `getStatusNodeSelectionSnapshot(editor)` 读取当前光标所在的 `paragraph / heading / listItem / taskItem`，拿到 `blockId` 后再设置状态。
+  - 验证：`npm test` 通过，8 个测试文件、32 个测试通过；三端 `tsc --noEmit` 均通过。
+- **用户须知**：
+  - 底部快捷按钮不是“选中工作台条目”的操作，而是“当前光标所在文本行”的操作。
+  - 如果想用底部按钮设置某一行，先点击或把光标放到那一行。
+- **已知限制**：
+  - 底部图标使用文本符号实现，不引入新的图标库。
+- **关联假设**：
+  - 无
+
+## [2026-04-28] M0.13-R25 状态徽标污染正文修复与右键菜单排序
+- **What（做了什么）**：
+  - 修改 [src/renderer/utils/blockStatus.ts](/Users/lmy/proj/Others/todonotes/src/renderer/utils/blockStatus.ts)：
+    - `syncBlockStatusDom` 不再创建真实 `span.block-status-badge` 并插入编辑器正文 DOM。
+    - 改为把状态文案写到宿主节点的 `data-block-status-badge` 属性上。
+    - 清理状态 DOM 时同步移除 `data-block-status-badge` 和状态 class。
+  - 修改 [src/renderer/styles/app.css](/Users/lmy/proj/Others/todonotes/src/renderer/styles/app.css)：
+    - 用 `.has-block-status::before { content: attr(data-block-status-badge); }` 渲染状态徽标。
+    - 保留进行中、等待中、待开始、已完成的徽标颜色和已完成划线效果。
+  - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：
+    - 普通文本块右键菜单排序改为：`状态标记...` 第一，`优先级` 第二，`添加当前页到书签` 第三。
+- **Why（为什么这么做）**：
+  - 之前状态徽标是通过真实 DOM `span` 插入到编辑器文本块前面。跳转/聚焦文本块时，ProseMirror 可能把这个 DOM 节点当成正文内容同步回编辑器状态，所以每跳转一次就会把状态文案追加到正常文本前。
+  - CSS 伪元素只负责视觉展示，不是编辑器文档树里的真实文本节点，因此不会被保存进正文。
+- **How（怎么实现的）**：
+  - 数据流从“插入 DOM 文本节点”改为“写 data 属性 → CSS `::before` 读取 data 属性显示”。
+  - `data-block-status-badge`：保存要显示的状态文案，例如 `进行中.超时:2m`。
+  - `::before`：CSS 伪元素，用来在元素前显示视觉内容；它不会成为可编辑正文的一部分。
+  - 验证：`npm test` 通过，8 个测试文件、32 个测试通过；三端 `tsc --noEmit` 均通过。
+- **用户须知**：
+  - 已经被之前 bug 写进正文里的重复状态文字属于真实文本，需要手动删掉一次；修复后后续跳转不会再继续新增。
+  - 子任务链接块右键菜单没有块级 `状态标记...`，本轮只调整普通文本块右键菜单排序。
+- **已知限制**：
+  - 无。
+- **关联假设**：
+  - 无
+
+## [2026-04-27] M0.13-R24 状态到点 macOS 系统通知
+- **What（做了什么）**：
+  - 修改 [src/main/reminderScheduler.ts](/Users/lmy/proj/Others/todonotes/src/main/reminderScheduler.ts)：
+    - 引入 Electron `Notification`，用 macOS 系统通知提醒状态块到点。
+    - 每分钟扫描状态块，并在应用启动时补查已经到点的状态块。
+    - 待开始到达 `plannedStartAt` 时发送“待开始时间到了”。
+    - 进行中到达 `workStatusUpdatedAt + plannedDurationMinutes * 60000` 时发送“进行中已超时”。
+    - 等待中到达 `waitReviewAt` 时发送“等待回看时间到了”。
+    - 使用 `workStatus:taskId:blockId:dueAt` 作为内存去重 key，避免同一状态同一到点时间每分钟重复通知。
+  - 修改 [src/main/db/tasksRepo.ts](/Users/lmy/proj/Others/todonotes/src/main/db/tasksRepo.ts)：
+    - 新增 `listAllActiveStatusBlocks()`，用于主进程扫描所有未完成、未归档、未删除任务中的状态块。
+  - 新增 [src/renderer/utils/__tests__/statusNotificationScheduler.test.ts](/Users/lmy/proj/Others/todonotes/src/renderer/utils/__tests__/statusNotificationScheduler.test.ts)：
+    - 覆盖待开始、进行中超时、等待回看到点三类系统通知。
+    - 覆盖未来时间不通知、同一到点不重复通知。
+- **Why（为什么这么做）**：
+  - 用户要求状态到点后触发 Mac 系统通知，而不是只在工作台里改变排序或文案。
+  - 复用现有 `reminderScheduler` 的每分钟调度机制，可以避免新增一套定时器，也让启动补查和运行中扫描在同一处收口。
+- **How（怎么实现的）**：
+  - 数据流：主进程定时器 → `listAllActiveStatusBlocks()` 读取活跃任务状态块 → 按状态计算到点时间 → `Notification.show()` 发送 macOS 系统通知。
+  - 去重规则：同一状态、同一任务、同一块、同一到点时间只通知一次；用户修改状态或时间后 key 改变，可再次通知。
+  - 验证：`npm test` 通过，8 个测试文件、32 个测试通过；三端 `tsc --noEmit` 均通过。
+- **用户须知**：
+  - macOS 系统通知是否可见还取决于系统通知权限设置。
+  - 应用重启后会补查已到点状态块；由于去重 key 是内存态，重启后已到点状态可能再次通知一次。
+- **已知限制**：
+  - 当前不把状态通知写入数据库，因此没有跨重启的“已通知”持久状态。
+  - 点击系统通知暂未跳转到对应文本块。
+- **关联假设**：
+  - 无
+
+## [2026-04-27] M0.13-R23 状态计时与跨 Tab 切换修订
+- **What（做了什么）**：
+  - 修改 [src/shared/blockStatus.ts](/Users/lmy/proj/Others/todonotes/src/shared/blockStatus.ts)：
+    - `formatStatusBadge` 新增待开始逾期文案：未到点显示 `待开始.时间.时长`，到点仍未开始显示 `待开始.逾期:时间.时长`。
+    - `formatStatusBadge` 新增进行中文案：有预计时长时显示 `进行中.时长.剩余:剩余时长`，超过预计时长后显示 `进行中.超时:xm`。
+    - 待开始排序改为按预计开始时间判断逾期，而不是按预计结束时间判断超计划。
+  - 修改 [src/renderer/utils/blockStatus.ts](/Users/lmy/proj/Others/todonotes/src/renderer/utils/blockStatus.ts)：
+    - DOM 徽标格式化时把 `workStatusUpdatedAt` 传入共享 formatter，让进行中倒计时能按开始时间计算。
+    - 进行中和等待中也保留 `plannedDurationMinutes`；这个字段在进行中表示本次预计/剩余时长，在等待中表示暂停后的剩余时长。
+  - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：
+    - 待开始切换为进行中时，沿用原 `plannedDurationMinutes`。
+    - 进行中切换为等待中时，根据 `workStatusUpdatedAt` 和 `plannedDurationMinutes` 计算剩余分钟，并把剩余值写入等待状态，达到“等待时暂停计时”的效果。
+    - 底部左右切换从“只在当前 Tab 内切换”改为按 `进行中 -> 等待中 -> 待开始` 的全局顺序切换；切到其他状态时同步切换 Tab。
+  - 修改 [src/renderer/utils/__tests__/blockStatus.test.ts](/Users/lmy/proj/Others/todonotes/src/renderer/utils/__tests__/blockStatus.test.ts)：
+    - 补充待开始逾期文案、进行中剩余/超时文案和待开始逾期排序测试。
+- **Why（为什么这么做）**：
+  - 用户需要区分“待开始已经到点但还没开始”和“进行中已经超过预计时长”两类状态。
+  - 等待中代表被外部事项卡住，不应该继续消耗进行中的倒计时，所以切换到等待时要把剩余时长固化下来。
+  - 底部左右按钮是连续处理入口，应该跨三个状态 Tab 按固定顺序切，而不是被当前 Tab 限制。
+- **How（怎么实现的）**：
+  - 进行中倒计时：`workStatusUpdatedAt + plannedDurationMinutes * 60000` 得到计划结束时间；当前时间未超过则显示剩余分钟，超过则显示超时分钟。
+  - 等待暂停：从进行中进入等待时计算 `plannedDurationMinutes - 已消耗分钟`，最少保留 1 分钟；等待期间只显示等待原因，不重算倒计时。
+  - 跨 Tab 切换：把所有状态块按 `doing -> waiting -> todo` 分组，各组内部继续用 `compareStatusBlocks` 排序，底部按钮在这个扁平列表中循环。
+- **用户须知**：
+  - 待开始到点后不会自动切成进行中，只会显示 `待开始.逾期:时间.时长`。
+  - 进行中超时后显示 `进行中.超时:xm`。
+  - 进行中转等待会暂停剩余时长；等待再转进行中时，从保存的剩余时长重新开始计时。
+- **已知限制**：
+  - 进行中倒计时仍按分钟粒度刷新，不显示秒。
+  - 等待中不会自动恢复为进行中，需要用户手动切换。
+- **关联假设**：
+  - `[2026-04-27/M0.13-R22] 等待回看时间只排序不提醒`
+
+## [2026-04-27] M0.13-R22 Sticky 状态工作台改造
+- **What（做了什么）**：
+  - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：
+    - 删除旧待处理 / 截止时间工作台残留代码，移除 `添加文本块到待处理`、`设置截止时间`、`今天`、`1 小时内`、旧 `BlockTimeModal` 调用和手动待处理拖拽排序逻辑。
+    - 保留页面书签能力：`添加当前页到书签` 仍可使用；但文本块工作流入口统一改为右键 `状态标记...`。
+    - 工作台按钮文案改为 `状态 (n)`，其中 `n` 是当前共享根任务活跃子树内未完成状态块数量。
+    - 工作台弹层只保留三个 Tab：`进行中`、`等待中`、`待开始`。点击条目会定位到对应文本块；底部左右按钮按当前 Tab 的排序结果切换，文案改为 `状态 x/y`。
+    - `待开始...` 使用 `BlockPlanModal` 写入 `workStatus: "todo"`、`plannedStartAt`、`plannedDurationMinutes`。
+    - `等待中...` 使用 `BlockWaitingModal` 写入 `workStatus: "waiting"`、`waitReason`、可选 `waitReviewAt`。
+    - `进行中` 写入 `workStatus: "doing"`；`已完成` 写入 `workStatus: "done"`；`清除状态` 清空全部状态字段。
+  - 修改 [src/shared/blockStatus.ts](/Users/lmy/proj/Others/todonotes/src/shared/blockStatus.ts)：
+    - 收紧 `collectStatusBlocksFromTask` 的类型判断，只收集 `todo / doing / waiting`，明确排除 `done` 和空状态。
+    - 继续在写入状态时删除旧 `dueAt`，保证旧截止时间字段不会参与新工作台。
+  - 修改 [src/renderer/styles/app.css](/Users/lmy/proj/Others/todonotes/src/renderer/styles/app.css)：
+    - 将旧待处理列表样式复用为状态工作台列表样式，移除拖拽态样式依赖。
+    - 新增 `doing / waiting / todo` 三类状态徽标颜色。
+    - 新增 `.has-work-status-done` 完成样式，让已完成文本块正文划掉并降低透明度。
+  - 删除 `src/renderer/utils/__tests__/blockTiming.test.ts`，新增 [src/renderer/utils/__tests__/blockStatus.test.ts](/Users/lmy/proj/Others/todonotes/src/renderer/utils/__tests__/blockStatus.test.ts)：
+    - 覆盖待开始状态写入、旧 `dueAt` 清理、进行中/等待中/已完成/清除状态字段规则。
+    - 覆盖正文徽标文案、计划结束时间计算、超计划文案。
+    - 覆盖进行中、等待中、待开始三类排序规则。
+    - 覆盖状态汇总时排除 `done` 已完成块。
+  - 更新 `PRD.md`、`plan.md`、`ASSUMPTIONS.md`、`PROJECT_STATUS.md`：记录状态字段、工作台 Tab、排序规则、不兼容旧 `dueAt` / 旧手动待处理数据的结论。
+- **Why（为什么这么做）**：
+  - 用户要求从“待处理 + 截止时间”切换为“状态工作台”，旧手动待处理和旧 `dueAt` 已不再是文本块工作流入口。
+  - 直接清掉旧入口比兼容两套模型更稳：否则同一个文本块会同时受书签、截止时间、人工状态三套规则影响，列表计数、排序、跳转都会变得难以解释。
+  - `waitReviewAt` 本轮只做排序和显示，不接提醒系统，是为了把范围控制在状态工作台内，避免顺带改动提醒调度链路。
+- **How（怎么实现的）**：
+  - 核心数据流：用户右键正文块 → `状态标记...` → 写入块属性 `workStatus` 及对应附属字段 → `task:update` 保存到 `tasks.blocks` → Sticky 通过 `task:listStatusBlocksByRoot` 汇总当前根任务活跃子树 → `compareStatusBlocks` 按当前 Tab 排序 → 状态工作台渲染列表。
+  - 关键字段：`workStatus` 是人工状态；`plannedStartAt` 是预计开始时间；`plannedDurationMinutes` 是预计持续时长；`waitReason` 是等待原因；`waitReviewAt` 是等待回看时间。
+  - 验证：`npm test` 通过，7 个测试文件、30 个测试通过；三端 `tsc --noEmit` 均通过。
+- **用户须知**：
+  - 旧 `dueAt` 截止时间不会自动进入新状态工作台。
+  - 旧的块级“添加文本块到待处理”入口已移除；后续要让某段进入工作台，需要右键该文本块并选择 `状态标记...`。
+  - 已完成状态只划掉当前文本块，不会同步完成整个任务页。
+  - 等待回看时间到点后只影响等待中 Tab 排序，不会自动弹提醒。
+- **已知限制**：
+  - 状态工作台当前只在 Sticky 中提供，Library 没有独立状态视图。
+  - `taskLink` 子任务链接卡片暂不支持直接设置块级状态。
+  - 旧手动待处理块书签不会自动迁移为 `workStatus`。
+- **关联假设**：
+  - `[2026-04-27/M0.13-R22] 状态工作台不迁移旧 dueAt 与旧块书签`
+  - `[2026-04-27/M0.13-R22] 等待回看时间只排序不提醒`
+
 ## [2026-04-07] M0.13-R21-simplify 时间模型收敛为仅截止时间
 - **What（做了什么）**：
   - 修改 [src/shared/types.ts](/Users/lmy/proj/Others/todonotes/src/shared/types.ts)：
@@ -1185,3 +1549,186 @@
   - 当前优先级下拉仍按“任务级状态”过滤，不会单独判断块级状态；也就是说，只要任务本身已完成，任务内所有优先级块都会一起隐藏。
 - **关联假设**：
   - `[2026-04-02/M0.13-R20] 优先级下拉继续隐藏已归档任务`
+
+## [2026-04-28] M0.13-R26-hotfix3 状态切换时同一视觉文本块只保留一个状态
+- **What（做了什么）**：
+  - `src/shared/blockStatus.ts`
+    - 保留状态字段清理工具 `clearStatusAttrs()`，它会把 `workStatus`、`workStatusUpdatedAt`、`plannedStartAt`、`plannedDurationMinutes`、`waitReason`、`waitReviewAt` 统一置空。
+    - 修改 `updateBlockStatusInBlocks()` 的递归写入逻辑：
+      - 当命中目标块并写入新状态时，会继续扫描目标块内部子节点；如果子节点也是可挂状态的正文块并且带有旧状态，就清空子节点状态。
+      - 当目标块命中在某个父节点内部时，递归返回会通知父层“子节点已写入状态”；如果父节点本身也带有旧状态，就清空父节点状态。
+      - 删除旧 `startAt/dueAt` 字段的行为保持不变，新状态仍然只使用状态工作台字段。
+    - 撤回 `collectStatusBlocksFromTask()` 中“收集到父状态后直接跳过子节点”的临时兜底逻辑。现在汇总仍按真实数据结构遍历，不额外兼容历史重复状态。
+  - `src/renderer/utils/blockStatus.ts`
+    - 新增编辑器侧状态字段清理逻辑，右键菜单和底部快捷按钮走的实时 Tiptap transaction 也会执行父子互斥。
+    - `applyStatusNodeAttrs()` 写目标节点前，会清除目标节点的状态祖先；写目标节点时，也会清除目标节点内部的状态子节点。
+    - 写入只改节点属性，不改变正文结构，不会移动光标所在文本或插入额外文本。
+  - `src/renderer/utils/__tests__/blockStatus.test.ts`
+    - 新增 2 个回归测试：
+      - 子段落设置 `todo` 时，外层 `taskItem` 原有 `waiting` 会被清空。
+      - 外层 `taskItem` 设置 `doing` 时，内部段落原有 `todo` 会被清空。
+- **Why（为什么这么做）**：
+  - 你反馈来回切换状态后，同一个视觉文本块会出现多个状态，并且状态工作台里同一内容会多出多条记录。
+  - 根因是 Tiptap 的列表/checkbox 行在数据结构上可能是“外层 `taskItem/listItem` + 内层 `paragraph`”。它们视觉上是一行，但技术上是父子两个可挂状态节点。之前写状态只改当前命中的那个节点，没有清掉同一视觉行另一个节点上的旧状态。
+  - 这次不做历史清洗或旧数据兼容，因为你已经明确清除了历史数据。修复范围只放在“以后每次写状态时，后写覆盖前写”。
+- **How（怎么实现的）**：
+  - 数据流/调用链：
+    - 右键菜单或底部快捷按钮选择状态
+    - Sticky 找到当前目标正文块
+    - `applyStatusNodeAttrs()` 在编辑器内写入新状态
+    - 同一个 transaction 清理目标块祖先和子孙上的旧状态
+    - 保存任务正文后，共享层 `updateBlockStatusInBlocks()` 也按同样规则保证 JSON 写入互斥
+    - `task:listStatusBlocksByRoot` 汇总时只会看到最新保留的那个状态节点
+  - 关键技术决策点：
+    - `workStatus`：块级人工状态，取值为 `todo`（待开始）、`doing`（进行中）、`waiting`（等待中）、`done`（已完成）。同一视觉文本块只能保留一个。
+    - 父子互斥：这里指外层列表项和内层段落不能同时拥有状态字段；用户看到的是一行，所以以后设置新状态时直接覆盖同一视觉行的旧状态。
+    - 不在汇总阶段去“猜测去重”：汇总阶段只读真实数据，写入阶段保证数据正确，避免把正常嵌套内容误隐藏。
+- **用户须知**：
+  - 之后在同一行上来回切换 `待开始 / 进行中 / 等待中 / 已完成`，后设置的状态会覆盖前一个状态。
+  - 工作台里同一视觉文本块不应再因为父子节点同时有状态而出现两条。
+  - 本轮没有做历史重复状态清洗；你的历史数据已清空，后续新数据由写入逻辑保证唯一。
+- **已知限制**：
+  - 互斥范围限定在同一父子视觉块链路内，不会跨不同列表项或不同段落清状态。
+- **关联假设**：
+  - 无。用户已明确“不用兜住历史，我都清除了”。
+
+## [2026-04-29] M0.13-R27 待开始逾期分段系统通知
+- **What（做了什么）**：
+  - `src/main/reminderScheduler.ts`
+    - 新增 `TODO_FOLLOW_UP_DELAYS_MINUTES` 常量，固定四个待开始分段提醒阈值：5、10、30、60 分钟。
+    - 新增 `lastStatusCheckAt`，记录上一次状态块扫描时间。这个值只存在当前应用进程内，用于判断“本轮运行期间是否刚跨过某个阈值”。
+    - 新增 `buildTodoFollowUpNotifications()`，只处理 `workStatus: "todo"` 的状态块，并从 `plannedStartAt` 起算计算分段提醒时间。
+    - `checkDueStatusBlocks()` 改为支持 `includeTodoFollowUps` 选项：普通定时扫描会启用分段提醒；启动补查会禁用分段提醒。
+    - `checkOverdueOnStartup()` 继续检查原有到点提醒、进行中超时、等待回看，但不会补发关闭期间错过的 5 / 10 / 30 / 60 分钟提醒。
+    - 每个分段提醒使用独立去重 key：`todo-follow-up:taskId:blockId:plannedStartAt:delayMinutes`，保证同一个待开始块同一个阈值只通知一次。
+  - `src/renderer/utils/__tests__/statusNotificationScheduler.test.ts`
+    - 原有待开始到点、进行中超时、等待回看到点测试保持不变。
+    - 新增 4 个测试：
+      - 运行期从 4 分钟跨到 5 分钟时，发送一次 `待开始已逾期 5 分钟`。
+      - 一次扫描从 4 分钟跨到 31 分钟时，按顺序发送 5 / 10 / 30 分钟提醒。
+      - 启动补查时即使已经超过 61 分钟，也只保留原有“待开始时间到了”，不补发分段提醒。
+      - 待开始块已转为 `doing` 后，不再发送待开始分段提醒。
+  - `PRD.md`、`plan.md`、`PROJECT_STATUS.md`
+    - 记录待开始分段提醒的起算点、阈值、运行期触发规则和启动不补发规则。
+- **Why（为什么这么做）**：
+  - 你要求“待开始的 5m/10m/30m/1h 后未转成进行中均进行一次通知提醒”，核心目的是在待开始事项错过预计开始时间后持续轻量追踪，而不是只在开始时间到点提醒一次。
+  - 分段提醒放在主进程调度器里实现，是因为现有 macOS 系统通知、状态块扫描、去重逻辑都已经集中在这里。这样不需要新增前端 UI、数据库字段或 IPC 契约。
+  - 启动补查不补发分段提醒，是按你确认的规则处理，避免应用重新打开时一次性弹出多条历史逾期通知。
+- **How（怎么实现的）**：
+  - 数据流/调用链：
+    - 主进程每分钟执行状态扫描
+    - `listAllActiveStatusBlocks()` 返回当前活跃任务树中的状态块
+    - 原有 `buildStatusNotification()` 继续处理待开始到点、进行中超时、等待回看
+    - 新增 `buildTodoFollowUpNotifications()` 检查 `previousCheckAt < plannedStartAt + delay <= now`
+    - 只有仍为 `todo` 的状态块会生成 5 / 10 / 30 / 60 分钟分段通知
+    - 通知发出后写入内存去重集合，后续扫描不会重复发送同一阈值
+  - 关键技术决策点：
+    - `plannedStartAt`：待开始预计开始时间，毫秒时间戳；本轮所有分段提醒都从它起算。
+    - `lastStatusCheckAt`：当前应用进程内上一次扫描状态块的时间；它用来区分“运行期间刚跨过阈值”和“启动时已经错过很久”。
+    - `includeTodoFollowUps`：状态扫描选项。值为 `true` 表示允许待开始分段提醒；值为 `false` 表示只做原有到点检查，用于启动补查。
+- **用户须知**：
+  - 待开始在预计开始时间到点仍会先收到原有“待开始时间到了”通知。
+  - 如果应用持续运行，之后仍没切到进行中、等待中、已完成或清除状态，会在 5 / 10 / 30 / 60 分钟分别再提醒一次。
+  - 如果应用关闭期间错过这些分段时间，重新打开后不会补发这些历史分段提醒。
+- **已知限制**：
+  - 分段提醒去重只保存在当前应用进程内；应用重启后不会记住上一次运行中已经发过哪些分段提醒，但因为启动补查禁用分段提醒，所以不会在启动瞬间补发历史分段提醒。
+- **关联假设**：
+  - 无。起算点和不补发规则已由用户确认。
+
+## [2026-04-29] M0.13-R28 等待回看逾期分段系统通知
+- **What（做了什么）**：
+  - `src/main/reminderScheduler.ts`
+    - 将原本只服务待开始的 `TODO_FOLLOW_UP_DELAYS_MINUTES` 改为通用的 `STATUS_FOLLOW_UP_DELAYS_MINUTES`，固定四个分段阈值：5、10、30、60 分钟。
+    - 将 `buildTodoFollowUpNotifications()` 泛化为 `buildStatusFollowUpNotifications()`，同时支持：
+      - `todo`：从 `plannedStartAt` 起算，生成待开始分段提醒。
+      - `waiting`：从 `waitReviewAt` 起算，生成等待回看分段提醒。
+    - 等待回看 0 分钟仍走原有 `buildStatusNotification()`，标题为 `等待回看时间到了`。
+    - 等待回看 5 / 10 / 30 / 60 分钟分段提醒新增标题：
+      - `等待回看已逾期 5 分钟`
+      - `等待回看已逾期 10 分钟`
+      - `等待回看已逾期 30 分钟`
+      - `等待回看已逾期 1 小时`
+    - 分段提醒去重 key 改为包含状态类型：`${workStatus}-follow-up:taskId:blockId:baseAt:delayMinutes`，避免待开始和等待中互相影响。
+    - 启动补查继续通过 `includeStatusFollowUps: false` 禁用分段提醒，因此不会补发关闭期间错过的等待回看分段提醒。
+  - `src/renderer/utils/__tests__/statusNotificationScheduler.test.ts`
+    - 新增 4 个等待回看分段提醒测试：
+      - 运行期从 4 分钟跨到 5 分钟时，发送一次 `等待回看已逾期 5 分钟`。
+      - 一次扫描从 4 分钟跨到 61 分钟时，按顺序发送 5 / 10 / 30 / 60 分钟提醒。
+      - 启动补查时即使已经超过 61 分钟，也只保留原有“等待回看时间到了”，不补发分段提醒。
+      - 等待中已转为 `doing` 后，不再发送等待回看分段提醒。
+  - `PRD.md`、`plan.md`、`PROJECT_STATUS.md`
+    - 记录等待回看 0 / 5 / 10 / 30 / 60 分钟提醒规则、启动不补发规则和当前项目状态。
+- **Why（为什么这么做）**：
+  - 你要求等待中到了回看时间后也“同样加上 0/5/10/30/60 分钟提醒”，说明等待中回看需要和待开始逾期一样具备持续追踪能力。
+  - 等待回看本身已经有 0 分钟到点通知，所以本轮只需要补齐 5 / 10 / 30 / 60 分钟分段提醒，并保持原 0 分钟提醒不变。
+  - 直接泛化状态分段提醒函数，避免未来待开始和等待中各维护一套几乎相同的阈值、去重和启动补发逻辑。
+- **How（怎么实现的）**：
+  - 数据流/调用链：
+    - 主进程每分钟执行状态扫描
+    - `listAllActiveStatusBlocks()` 返回当前活跃任务树中的状态块
+    - `buildStatusNotification()` 继续处理等待回看 0 分钟到点通知
+    - `buildStatusFollowUpNotifications()` 在普通运行期扫描中检查 `previousCheckAt < waitReviewAt + delay <= now`
+    - 只有仍为 `waiting` 的状态块会生成等待回看 5 / 10 / 30 / 60 分钟分段通知
+    - 通知发出后写入内存去重集合，后续扫描不会重复发送同一阈值
+  - 关键技术决策点：
+    - `waitReviewAt`：等待回看时间，毫秒时间戳；等待回看所有分段提醒都从它起算。
+    - `0 分钟提醒`：指现有 `等待回看时间到了` 通知，本轮不改标题和 body 格式。
+    - `includeStatusFollowUps`：状态扫描选项。值为 `true` 表示允许待开始/等待中分段提醒；值为 `false` 表示只做原有到点检查，用于启动补查。
+- **用户须知**：
+  - 等待回看到点时仍会收到原有“等待回看时间到了”通知。
+  - 如果应用持续运行，之后仍没切出等待中，会在 5 / 10 / 30 / 60 分钟分别再提醒一次。
+  - 如果应用关闭期间错过这些分段时间，重新打开后不会补发这些历史分段提醒。
+- **已知限制**：
+  - 分段提醒去重只保存在当前应用进程内；应用重启后不会记住上一次运行中已经发过哪些分段提醒，但启动补查禁用分段提醒，因此不会在启动瞬间补发历史分段提醒。
+- **关联假设**：
+  - 无。用户明确要求等待中按同样规则增加 0 / 5 / 10 / 30 / 60 分钟提醒。
+
+## [2026-04-29] M0.13-R30 状态时间弹窗统一快捷时间选项
+- **What（做了什么）**：
+  - `src/renderer/components/statusTimeOptions.ts`
+    - 新增共享常量 `STATUS_TIME_OPTIONS_MINUTES`。
+    - 统一快捷时间选项为 9 个分钟值：5、10、15、20、30、45、60、90、120。
+    - 这个常量只负责前端弹窗快捷按钮展示，不改变 `plannedDurationMinutes`、`plannedStartAt`、`waitReviewAt` 这些已保存字段的结构。
+  - `src/renderer/components/BlockDurationModal.tsx`
+    - 移除组件内旧的 `15 / 25 / 45 / 60 / 90` 快捷选项。
+    - 改为引用 `STATUS_TIME_OPTIONS_MINUTES`。
+    - 影响“进行中”预计持续时长设置弹窗；用户仍可在数字输入框中输入任意正整数分钟。
+  - `src/renderer/components/BlockPlanModal.tsx`
+    - 移除组件内旧的 `15 / 25 / 45 / 60 / 90` 快捷选项。
+    - 改为引用 `STATUS_TIME_OPTIONS_MINUTES`。
+    - 影响“待开始”预计持续时长设置弹窗；预计开始时间输入框不变，预计持续时长仍可手动输入。
+  - `src/renderer/components/BlockWaitingModal.tsx`
+    - 新增同一组快捷按钮。
+    - 点击 `5m / 10m / ... / 120m` 时，会把回看时间设置为“当前时间 + 对应分钟”，并写入原有的 `datetime-local` 输入框。
+    - 等待原因输入、回看时间手动选择、回看时间可为空这些行为保持不变。
+  - `PRD.md`、`plan.md`、`PROJECT_STATUS.md`
+    - 记录三个入口统一使用 `5 / 10 / 15 / 20 / 30 / 45 / 60 / 90 / 120` 分钟快捷按钮。
+- **Why（为什么这么做）**：
+  - 你要求“持续时长，预计持续时长，回看都统一加上快捷设置时间 5m 10m 15m 20m 30m 45m 60m 90m 120m”。
+  - 原来进行中和待开始只有 `15 / 25 / 45 / 60 / 90`，等待中回看没有快捷按钮。三个入口不一致，会让用户在设置状态时来回切换心智。
+  - 抽成共享常量可以避免以后只改了一个弹窗、漏改另外两个弹窗。
+- **How（怎么实现的）**：
+  - 数据流/调用链：
+    - 用户打开进行中预计持续时长弹窗
+    - `BlockDurationModal` 渲染共享快捷选项
+    - 点击按钮写入分钟输入框
+    - 提交后保存到 `plannedDurationMinutes`
+  - 数据流/调用链：
+    - 用户打开待开始弹窗
+    - `BlockPlanModal` 渲染共享快捷选项
+    - 点击按钮写入预计持续时长输入框
+    - 提交后保存到 `plannedDurationMinutes`
+  - 数据流/调用链：
+    - 用户打开等待中弹窗
+    - `BlockWaitingModal` 渲染共享快捷选项
+    - 点击按钮将 `reviewAtValue` 设置为 `Date.now() + minutes * 60 * 1000`
+    - 提交后保存到 `waitReviewAt`
+- **用户须知**：
+  - 三个入口现在都能快速选：5m、10m、15m、20m、30m、45m、60m、90m、120m。
+  - 进行中和待开始的快捷按钮表示“持续多少分钟”。
+  - 等待中回看的快捷按钮表示“多少分钟后回看”。
+  - 手动输入分钟和手动选择回看时间仍然可用。
+- **已知限制**：
+  - 等待中快捷回看时间按点击瞬间的当前时间计算；如果弹窗打开很久后再点快捷按钮，会以点击时刻为准。
+- **关联假设**：
+  - 无。用户已明确给出完整快捷时间列表。

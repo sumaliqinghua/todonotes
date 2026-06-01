@@ -5,7 +5,7 @@
   "main": "dist/main/main.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "concurrently -k \"vite\" \"tsc -w -p tsconfig.main.json\" \"tsc -w -p tsconfig.preload.json\" \"wait-on tcp:5173 dist/main/main.js dist/preload/index.js && electron .\"",
+    "dev": "concurrently -k \"vite\" \"tsc -w -p tsconfig.main.json\" \"tsc -w -p tsconfig.preload.json\" \"wait-on tcp:5173 dist/main/main.js dist/preload/index.js && node scripts/start-electron-dev.cjs .\"",
     "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && vite build && electron-builder",
     "postinstall": "electron-builder install-app-deps",
     "lint": "echo 'lint pending'",

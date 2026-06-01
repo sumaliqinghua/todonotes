@@ -1,8 +1,8 @@
 import { v4 as uuidv4 } from "uuid";
-import type { JsonValue, Task, TaskCreateInput, TaskUpdateInput, TimedBlock } from "../../shared/types";
+import type { JsonValue, StatusBlock, Task, TaskCreateInput, TaskUpdateInput } from "../../shared/types";
 import { getDb } from "./index";
 import { extractPlainText } from "../utils/blocks";
-import { collectTimedBlocksFromTask } from "../../shared/blockTiming";
+import { collectStatusBlocksFromTask } from "../../shared/blockStatus";
 
 const DEFAULT_BLOCKS: JsonValue = {
   type: "doc",
@@ -332,7 +332,7 @@ export function getPriorityBlocks(): import("../../shared/types").PriorityBlock[
   });
 }
 
-export function listTimedBlocksByRootTaskId(rootTaskId: string): TimedBlock[] {
+export function listStatusBlocksByRootTaskId(rootTaskId: string): StatusBlock[] {
   const root = getTaskById(rootTaskId);
   if (!root || root.isDeleted || root.isArchived || root.isCompleted) {
     return [];
@@ -352,7 +352,7 @@ export function listTimedBlocksByRootTaskId(rootTaskId: string): TimedBlock[] {
 
   const queue: Task[] = [root];
   const visited = new Set<string>();
-  const results: TimedBlock[] = [];
+  const results: StatusBlock[] = [];
 
   while (queue.length > 0) {
     const current = queue.shift();
@@ -360,7 +360,7 @@ export function listTimedBlocksByRootTaskId(rootTaskId: string): TimedBlock[] {
       continue;
     }
     visited.add(current.id);
-    results.push(...collectTimedBlocksFromTask(current));
+    results.push(...collectStatusBlocksFromTask(current));
     const children = getChildrenStmt.all(current.id).map(rowToTask);
     children.forEach((child) => {
       if (!visited.has(child.id)) {
@@ -370,4 +370,12 @@ export function listTimedBlocksByRootTaskId(rootTaskId: string): TimedBlock[] {
   }
 
   return results;
+}
+
+export function listAllActiveStatusBlocks(): StatusBlock[] {
+  const db = getDb();
+  const rows = db
+    .prepare("SELECT * FROM tasks WHERE is_deleted = 0 AND is_archived = 0 AND is_completed = 0 ORDER BY updated_at DESC")
+    .all();
+  return rows.flatMap((row) => collectStatusBlocksFromTask(rowToTask(row)));
 }

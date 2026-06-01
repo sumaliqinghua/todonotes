@@ -657,12 +657,22 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     return { taskId: task.id, title: task.title, isCompleted: task.isCompleted };
   };
 
+  const sanitizeStickyBookmarks = (bookmarks: WindowBookmark[], stickyRootTaskId: string) => {
+    return bookmarks.filter((bookmark) => bookmark.taskId !== stickyRootTaskId || Boolean(bookmark.blockId));
+  };
+
   useEffect(() => {
     const init = async () => {
       const state = await api.invoke("window:getState", { windowId });
       if (state) {
         setNavPath(state.navPathTaskIds);
-        setStickyBookmarks(Array.isArray(state.stickyBookmarks) ? state.stickyBookmarks : []);
+        const loadedBookmarks = Array.isArray(state.stickyBookmarks) ? state.stickyBookmarks : [];
+        const nextStickyBookmarks =
+          state.windowType === "sticky" ? sanitizeStickyBookmarks(loadedBookmarks, state.rootTaskId) : loadedBookmarks;
+        setStickyBookmarks(nextStickyBookmarks);
+        if (state.windowType === "sticky" && nextStickyBookmarks.length !== loadedBookmarks.length) {
+          api.invoke("window:updateState", { windowId, stickyBookmarks: nextStickyBookmarks });
+        }
         updateWindowSettings({
           opacity: state.opacity,
           alwaysOnTop: state.alwaysOnTop,
@@ -937,7 +947,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             canHistoryBack={canHistoryBack}
             canHistoryForward={canHistoryForward}
             onOpenInNewWindow={(taskId) => api.invoke("window:open", { rootTaskId: taskId, windowType: "sticky" })}
-            onUpdateBlocks={(blocks) => currentTask && api.invoke("task:update", { id: currentTask.id, blocks })}
+            onUpdateBlocks={(taskId, blocks) => api.invoke("task:update", { id: taskId, blocks })}
             onCreateChildFromBlock={handleCreateChildFromBlock}
             onLoadInsertableChildren={loadInsertableChildren}
             onInsertExistingChildLink={insertExistingChildLink}

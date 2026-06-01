@@ -107,11 +107,18 @@ export interface PriorityBlock {
   text: string;
 }
 
-export interface TimedBlock {
+export type WorkStatus = "todo" | "doing" | "waiting" | "done";
+
+export interface StatusBlock {
   taskId: string;
   taskTitle: string;
   blockId: string;
   blockType: string;
   blockContent: string;
-  dueAt?: number;
+  workStatus: WorkStatus;
+  workStatusUpdatedAt?: number;
+  plannedStartAt?: number;
+  plannedDurationMinutes?: number;
+  waitReason?: string;
+  waitReviewAt?: number;
 }

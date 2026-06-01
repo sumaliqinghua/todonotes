@@ -14,7 +14,7 @@ import {
   restoreTaskRecursively,
   searchTasks,
   getPriorityBlocks,
-  listTimedBlocksByRootTaskId
+  listStatusBlocksByRootTaskId
 } from "../db/tasksRepo";
 import { createEdge, deleteEdge, deleteEdgesByChildId } from "../db/edgesRepo";
 import { createReminder, deleteReminder, listDueReminders, listRemindersByTask, markReminderDone } from "../db/remindersRepo";
@@ -228,8 +228,8 @@ export function registerIpcHandlers() {
     return getPriorityBlocks();
   });
 
-  ipcMain.handle("task:listTimedBlocksByRoot", (_event, input: Parameters<IpcInvokeMap["task:listTimedBlocksByRoot"]>[0]) => {
-    return listTimedBlocksByRootTaskId(input.rootTaskId);
+  ipcMain.handle("task:listStatusBlocksByRoot", (_event, input: Parameters<IpcInvokeMap["task:listStatusBlocksByRoot"]>[0]) => {
+    return listStatusBlocksByRootTaskId(input.rootTaskId);
   });
 
   ipcMain.handle("task:createFromBlock", (_event, input: Parameters<IpcInvokeMap["task:createFromBlock"]>[0]) => {

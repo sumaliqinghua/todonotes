@@ -234,10 +234,14 @@ function getInitialStickyBookmarks(
   baseBookmarks: Array<{ taskId: string; title: string }>
 ) {
   const source = persistedBookmarks.length > 0 ? persistedBookmarks : baseBookmarks;
-  if (source.length > 0) {
-    return source;
+  return sanitizeStickyBookmarks(rootTaskId, source);
+}
+
+function sanitizeStickyBookmarks<T extends { taskId: string; blockId?: string }>(rootTaskId: string, bookmarks: T[]) {
+  if (!Array.isArray(bookmarks) || bookmarks.length === 0) {
+    return [];
   }
-  return [{ taskId: rootTaskId, title: "" }];
+  return bookmarks.filter((bookmark) => bookmark.taskId !== rootTaskId || Boolean(bookmark.blockId));
 }
 
 function pickSharedStickyPatch(partial: Partial<WindowState>): SharedStickyPatch {
@@ -578,8 +582,14 @@ export function updateWindowState(partial: Partial<WindowState> & { windowId: st
   const sharedPatch = current.windowType === "sticky" ? pickSharedStickyPatch(partial) : {};
   const nextStickyBookmarks =
     Array.isArray(sharedPatch.stickyBookmarks) && current.windowType === "sticky"
-      ? sharedPatch.stickyBookmarks
-      : current.stickyBookmarks;
+      ? sanitizeStickyBookmarks(current.rootTaskId, sharedPatch.stickyBookmarks)
+      : current.windowType === "sticky"
+        ? sanitizeStickyBookmarks(current.rootTaskId, current.stickyBookmarks)
+        : current.stickyBookmarks;
+  const syncedSharedPatch: SharedStickyPatch = {
+    ...sharedPatch,
+    ...(Array.isArray(sharedPatch.stickyBookmarks) ? { stickyBookmarks: nextStickyBookmarks } : {})
+  };
   const merged: Partial<WindowState> = {
     ...partial,
     ...(Array.isArray(nextStickyBookmarks) ? { stickyBookmarks: nextStickyBookmarks } : {})
@@ -622,15 +632,15 @@ export function updateWindowState(partial: Partial<WindowState> & { windowId: st
         }
         const syncedState: WindowState = {
           ...state,
-          ...sharedPatch,
+          ...syncedSharedPatch,
           updatedAt: Date.now()
         };
         windowStates.set(windowId, syncedState);
-        if (typeof sharedPatch.stickyColor === "string" || typeof sharedPatch.stickyOpacity === "number") {
+        if (typeof syncedSharedPatch.stickyColor === "string" || typeof syncedSharedPatch.stickyOpacity === "number") {
           updateStickyWindowBackground(windowId, syncedState);
         }
       });
-      broadcastStickySharedUpdate(next.rootTaskId, sharedPatch);
+      broadcastStickySharedUpdate(next.rootTaskId, syncedSharedPatch);
     }
   }
 }

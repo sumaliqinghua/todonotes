@@ -505,15 +505,6 @@
   .sticky-pending-item {
     @apply flex items-stretch border-b last:border-b-0;
     border-color: rgba(60, 44, 10, 0.16);
-    cursor: grab;
-  }
-
-  .sticky-pending-item.is-dragging {
-    opacity: 0.45;
-  }
-
-  .sticky-pending-item.is-drag-over {
-    border-top: 2px solid rgba(60, 44, 10, 0.45);
   }
 
   .sticky-pending-item.is-active {
@@ -548,9 +539,19 @@
     @apply mb-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold;
   }
 
-  .sticky-pending-timing-due {
-    background: rgba(220, 38, 38, 0.12);
-    color: rgba(185, 28, 28, 0.88);
+  .sticky-pending-timing-doing {
+    background: rgba(37, 99, 235, 0.12);
+    color: rgba(30, 64, 175, 0.9);
+  }
+
+  .sticky-pending-timing-waiting {
+    background: rgba(217, 119, 6, 0.14);
+    color: rgba(146, 64, 14, 0.92);
+  }
+
+  .sticky-pending-timing-todo {
+    background: rgba(22, 163, 74, 0.12);
+    color: rgba(21, 128, 61, 0.92);
   }
 
   .sticky-pending-remove {
@@ -567,6 +568,15 @@
     @apply inline-flex items-center gap-1 rounded-md border border-black/20 bg-black/5 px-1 py-0.5 text-[11px];
   }
 
+  .sticky-status-quick-actions {
+    @apply inline-flex items-center gap-1 rounded-md border border-black/20 bg-black/5 px-1 py-0.5;
+  }
+
+  .sticky-status-quick-btn {
+    @apply flex h-5 w-5 items-center justify-center rounded-sm text-[11px] text-black/70 transition hover:bg-black/10 hover:text-black;
+    line-height: 1;
+  }
+
   .sticky-pending-focus-btn {
     @apply rounded-sm px-1 text-black/70 transition hover:bg-black/10 hover:text-black;
     line-height: 1.1;
@@ -574,8 +584,43 @@
 
   .sticky-pending-focus-text {
     @apply px-1 text-black/65;
-    min-width: 70px;
+    min-width: 64px;
     text-align: center;
+  }
+
+  .has-block-status::before {
+    content: attr(data-block-status-badge);
+    @apply mr-1.5 inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold align-middle;
+    background: rgba(60, 44, 10, 0.1);
+    color: rgba(0, 0, 0, 0.68);
+    text-decoration: none;
+  }
+
+  .has-work-status-doing::before {
+    background: rgba(37, 99, 235, 0.12);
+    color: rgba(30, 64, 175, 0.9);
+  }
+
+  .has-work-status-waiting::before {
+    background: rgba(217, 119, 6, 0.14);
+    color: rgba(146, 64, 14, 0.92);
+  }
+
+  .has-work-status-todo::before {
+    background: rgba(22, 163, 74, 0.12);
+    color: rgba(21, 128, 61, 0.92);
+  }
+
+  .has-work-status-done {
+    text-decoration: line-through;
+    opacity: 0.62;
+  }
+
+  .has-work-status-done::before {
+    background: rgba(75, 85, 99, 0.13);
+    color: rgba(55, 65, 81, 0.9);
+    text-decoration: none;
+    opacity: 1;
   }
 
   .block-highlight {

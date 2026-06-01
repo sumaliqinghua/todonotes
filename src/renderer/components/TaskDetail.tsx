@@ -19,7 +19,7 @@ import { CollapsibleListItem } from "../utils/listCollapse";
 import { updateTaskItemIndent } from "../utils/taskIndent";
 import { UniqueId } from "../utils/nodeId";
 import { Priority } from "../utils/priorityExtension";
-import { BlockTiming, syncBlockTimingDom } from "../utils/blockTiming";
+import { BlockStatus, syncBlockStatusDom } from "../utils/blockStatus";
 
 const DEFAULT_BLOCKS = {
   type: "doc",
@@ -31,7 +31,7 @@ interface Props {
   ancestors: Task[];
   onNavigate: (taskId: string, reset: boolean) => void;
   onOpenInNewWindow: (taskId: string) => void;
-  onUpdateBlocks: (blocks: any) => void;
+  onUpdateBlocks: (taskId: string, blocks: any) => void;
   onCreateChildFromBlock: (title: string) => Promise<{ taskId: string; title: string; isCompleted: boolean }>;
   onLoadInsertableChildren: () => Promise<Task[]>;
   onInsertExistingChildLink: (childId: string) => Promise<void>;
@@ -67,16 +67,30 @@ export default function TaskDetail({
 }: Props) {
   const [title, setTitle] = useState(task?.title ?? "");
   const [isEditingHeaderTitle, setIsEditingHeaderTitle] = useState(false);
-  const blocksTimer = useRef<number | null>(null);
+  const blocksTimersRef = useRef<Map<string, number>>(new Map());
   const editorRef = useRef<Editor | null>(null);
   const prevTaskIdRef = useRef<string | null>(null);
+  const latestTaskIdRef = useRef<string | null>(task?.id ?? null);
+  const onUpdateBlocksRef = useRef(onUpdateBlocks);
+  const suppressNextEditorUpdateRef = useRef(false);
   const skipHeaderCommitRef = useRef(false);
   const imageHandlers = createImageHandlers(editorRef);
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimer = useRef<number | null>(null);
   const pendingRemoteBlocksRef = useRef<any | null>(null);
   const lastLocalBlocksHashRef = useRef<string | null>(null);
-  const [timingNow, setTimingNow] = useState(() => Date.now());
+  const [statusNow, setStatusNow] = useState(() => Date.now());
+  latestTaskIdRef.current = task?.id ?? null;
+  onUpdateBlocksRef.current = onUpdateBlocks;
+
+  const replaceEditorContentWithoutSaving = (editor: Editor, blocks: any) => {
+    suppressNextEditorUpdateRef.current = true;
+    try {
+      editor.commands.setContent(blocks, false);
+    } finally {
+      suppressNextEditorUpdateRef.current = false;
+    }
+  };
 
   const errorToMessage = (error: unknown, fallback: string) => {
     if (error instanceof Error && error.message) {
@@ -109,7 +123,7 @@ export default function TaskDetail({
   }).configure({ nested: true });
 
   const editor = useEditor({
-    extensions: [StarterKit.configure({ listItem: false }), HeadingCollapse, CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId, Priority, BlockTiming],
+    extensions: [StarterKit.configure({ listItem: false }), HeadingCollapse, CollapsibleListItem, TaskList, TaskItemWithIndent, Image, TaskLinkNode, UniqueId, Priority, BlockStatus],
     content: (task?.blocks as any) ?? DEFAULT_BLOCKS,
     editorProps: {
       handlePaste: imageHandlers.handlePaste,
@@ -192,16 +206,27 @@ export default function TaskDetail({
       }
     },
     onUpdate: ({ editor }) => {
-      if (blocksTimer.current) {
-        window.clearTimeout(blocksTimer.current);
+      if (suppressNextEditorUpdateRef.current) {
+        suppressNextEditorUpdateRef.current = false;
+        return;
       }
-      blocksTimer.current = window.setTimeout(() => {
-        const nextBlocks = editor.getJSON();
-        lastLocalBlocksHashRef.current = JSON.stringify(nextBlocks);
-        onUpdateBlocks(nextBlocks);
+      const taskId = latestTaskIdRef.current;
+      if (!taskId) {
+        return;
+      }
+      const nextBlocks = editor.getJSON();
+      lastLocalBlocksHashRef.current = JSON.stringify(nextBlocks);
+      const existingTimer = blocksTimersRef.current.get(taskId);
+      if (existingTimer) {
+        window.clearTimeout(existingTimer);
+      }
+      const timerId = window.setTimeout(() => {
+        blocksTimersRef.current.delete(taskId);
+        onUpdateBlocksRef.current(taskId, nextBlocks);
       }, 500);
+      blocksTimersRef.current.set(taskId, timerId);
     }
-  });
+  }, [task?.id]);
 
   useEffect(() => {
     setTitle(task?.title ?? "");
@@ -248,7 +273,7 @@ export default function TaskDetail({
     const currentSerialized = JSON.stringify(current);
     const nextSerialized = JSON.stringify(next);
     if (taskIdChanged) {
-      editor.commands.setContent(next, false);
+      replaceEditorContentWithoutSaving(editor, next);
       pendingRemoteBlocksRef.current = null;
       lastLocalBlocksHashRef.current = nextSerialized;
     } else if (currentSerialized !== nextSerialized) {
@@ -259,7 +284,7 @@ export default function TaskDetail({
         // 输入中遇到远端更新时暂存，失焦后再应用
         pendingRemoteBlocksRef.current = next;
       } else {
-        editor.commands.setContent(next, false);
+        replaceEditorContentWithoutSaving(editor, next);
         pendingRemoteBlocksRef.current = null;
         lastLocalBlocksHashRef.current = nextSerialized;
       }
@@ -280,7 +305,7 @@ export default function TaskDetail({
       const currentSerialized = JSON.stringify(current);
       const pendingSerialized = JSON.stringify(pending);
       if (currentSerialized !== pendingSerialized) {
-        editor.commands.setContent(pending, false);
+        replaceEditorContentWithoutSaving(editor, pending);
       }
       pendingRemoteBlocksRef.current = null;
       lastLocalBlocksHashRef.current = pendingSerialized;
@@ -297,7 +322,7 @@ export default function TaskDetail({
 
   useEffect(() => {
     let intervalId: number | null = null;
-    const tick = () => setTimingNow(Date.now());
+    const tick = () => setStatusNow(Date.now());
     const delay = Math.max(1000, 60000 - (Date.now() % 60000));
     const timeoutId = window.setTimeout(() => {
       tick();
@@ -316,10 +341,10 @@ export default function TaskDetail({
       return;
     }
     const timer = window.setTimeout(() => {
-      syncBlockTimingDom(editor.view, timingNow);
+      syncBlockStatusDom(editor.view, statusNow);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [editor, timingNow, task?.blocks]);
+  }, [editor, statusNow, task?.blocks]);
 
   useEffect(() => {
     if (!editor) {
@@ -377,9 +402,8 @@ export default function TaskDetail({
 
   useEffect(() => {
     return () => {
-      if (blocksTimer.current) {
-        window.clearTimeout(blocksTimer.current);
-      }
+      blocksTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      blocksTimersRef.current.clear();
       if (scrollTimer.current) {
         window.clearTimeout(scrollTimer.current);
       }
@@ -698,7 +722,7 @@ export default function TaskDetail({
           scrollTimer.current = window.setTimeout(() => setIsScrolling(false), 3000);
         }}
       >
-        <EditorContent editor={editor} />
+        <EditorContent key={task.id} editor={editor} />
       </div>
     </div>
   );

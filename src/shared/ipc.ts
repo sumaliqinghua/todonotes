@@ -1,7 +1,7 @@
 import type {
   Attachment,
   AttachmentAddInput,
-  TimedBlock,
+  StatusBlock,
   PriorityBlock,
   Reminder,
   ReminderCreateInput,
@@ -32,7 +32,7 @@ export interface IpcInvokeMap {
   "task:moveChildReference": (input: { sourceParentId: string; targetParentId: string; childId: string }) => Task;
   "task:archiveCompletedChildren": (input: { parentId: string }) => { archivedIds: string[] };
   "task:getPriorityBlocks": () => PriorityBlock[];
-  "task:listTimedBlocksByRoot": (input: { rootTaskId: string }) => TimedBlock[];
+  "task:listStatusBlocksByRoot": (input: { rootTaskId: string }) => StatusBlock[];
 
   "edge:create": (input: { parentId: string; childId: string }) => void;
   "edge:delete": (input: { parentId: string; childId: string }) => void;
