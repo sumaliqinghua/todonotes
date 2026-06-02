@@ -16,7 +16,7 @@ import {
   getPriorityBlocks,
   listStatusBlocksByRootTaskId
 } from "../db/tasksRepo";
-import { runCodexBlockPrompt, openCodexSession } from "../codexRunner";
+import { runCodexBlockPrompt, openCodexSession, refreshOpenCodexSession } from "../codexRunner";
 import { createEdge, deleteEdge, deleteEdgesByChildId } from "../db/edgesRepo";
 import { createReminder, deleteReminder, listDueReminders, listRemindersByTask, markReminderDone } from "../db/remindersRepo";
 import { addAttachment, getAttachment, listAttachments } from "../db/attachmentsRepo";
@@ -283,6 +283,11 @@ export function registerIpcHandlers() {
         broadcast("task:updated", { taskId: task.id });
       }
       updateCodexBlockStatus(task.id, input.blockId, "doing");
+      if (nextSessionId) {
+        await refreshOpenCodexSession(nextSessionId, cwd).catch(() => {
+          // 终端刷新失败不影响 AI 执行结果落库。
+        });
+      }
       return {
         sessionId: nextSessionId,
         finalMessage: result.finalMessage

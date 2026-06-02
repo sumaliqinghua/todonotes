@@ -1,5 +1,100 @@
 # 实现记录（Records）
 
+## [2026-06-02] M0.14-R1-hotfix6 AI 完成后刷新已打开 Codex 终端
+- **What（做了什么）**：
+  - 修改 [src/main/codexRunner.ts](/Users/lmy/proj/Others/todonotes/src/main/codexRunner.ts)：
+    - `findRunningCodexResumes` 现在返回所有匹配当前 `sessionId` 的运行中 `codex resume` 进程，按 TTY 分组，并记录每组进程 PID。
+    - 新增 `runCommandInTerminalTabByTty`。这个函数会按 TTY 找到 Terminal tab，并在该 tab 中执行指定命令。
+    - 新增 `stopCodexResumeProcesses`。这个函数对已有 `codex resume` 进程发送 `SIGTERM`，让旧 TUI 退出回到 shell。
+    - 新增 `buildCodexResumeCommand`，统一生成 `codex resume --include-non-interactive --cd <项目路径> <sessionId>`。
+    - 新增 `refreshOpenCodexSession`。它只在已经存在同会话 Terminal tab 时执行刷新：结束旧 TUI，然后在同一个 tab 里重新执行 `codex resume`。
+  - 修改 [src/main/ipc/handlers.ts](/Users/lmy/proj/Others/todonotes/src/main/ipc/handlers.ts)：
+    - `codex:sendBlockPrompt` 在 `codex exec` 成功、块状态转为 `doing` 后，调用 `refreshOpenCodexSession(nextSessionId, cwd)`。
+    - 终端刷新失败不会影响 AI 执行结果和块状态回写；刷新失败会被吞掉，避免用户明明 AI 完成却因为终端问题看到块状态失败。
+- **Why（为什么这么做）**：
+  - 用户反馈：后台继续对话完成后，已经打开的 `codex resume` 终端不会刷新；必须杀掉终端再重新“打开本页 Codex 对话”才能看到新内容。
+  - 原因是 `codex exec resume --json` 会把新 turn 写入本地 session 文件，但另一个已经运行中的 `codex resume` TUI 不会自动监听并重新加载这个外部追加的 turn。
+  - 因此刷新方式不是“通知旧 TUI 重绘”，而是“在同一个 Terminal tab 里重启 `codex resume`”，让它重新读取最新 session。
+- **How（怎么实现的）**：
+  - AI 成功后的刷新调用链：
+    - 用户右键文本块选择“用当前块追问 Codex”
+    - 主进程执行 `codex exec resume --json <sessionId> <prompt>`
+    - Codex 成功结束，主进程把当前块状态写成 `doing`
+    - `refreshOpenCodexSession` 查找运行中的 `codex resume ... <sessionId>`
+    - 如果没找到，说明用户没有打开终端查看该会话，不做额外动作
+    - 如果找到，按 TTY 找到对应 Terminal tab
+    - 对旧 `codex resume` 进程发送 `SIGTERM`
+    - 在同一个 Terminal tab 中重新执行 `codex resume --include-non-interactive --cd <项目路径> <sessionId>`
+    - Terminal 被激活，用户看到最新对话
+- **用户须知**：
+  - 如果你已经打开了某个子页的 Codex 终端，AI 后台处理完成后，它会自动刷新并跳到前台。
+  - 如果你没有打开过终端，AI 完成不会主动弹出 Terminal，避免打断当前工作流。
+  - 旧版本已经打开出来的重复终端窗口不会被自动关闭；保留一个，手动关闭多余窗口即可。
+- **已知限制**：
+  - 如果你正在对应 Codex 终端里输入尚未发送的内容，后台 AI 完成时重启 TUI 可能会丢掉这段未发送输入。
+  - 如果 `codex resume` 已经退出，刷新逻辑找不到运行中 TTY，就不会自动打开终端。
+- **关联假设**：
+  - 无。本次是根据用户反馈的刷新缺失问题做的交互修复。
+
+## [2026-06-02] M0.14-R1-hotfix5 打开 Codex 会话按 TTY 复用 Terminal tab
+- **What（做了什么）**：
+  - 修改 [src/main/codexRunner.ts](/Users/lmy/proj/Others/todonotes/src/main/codexRunner.ts)：
+    - 新增 `findRunningCodexResumeTty`。这个函数执行 `ps -axo tty=,command=`，查找命令行里同时包含 `codex`、`resume` 和当前 `sessionId` 的运行中进程，并读取它所在的 TTY。
+    - 新增 `activateTerminalTabByTty`。这个函数用 AppleScript 遍历 Terminal 所有窗口和 tab，读取每个 tab 的 `tty` 属性；如果 tab 的 TTY 等于目标 TTY，就选中该 tab 并把窗口提到前台。
+    - 新增 `runOsaScript` 复用 AppleScript 执行逻辑，避免打开终端和激活 tab 两条路径重复写 `osascript` 子进程处理。
+    - `openCodexSession` 现在先按 `sessionId` 查找运行中的 `codex resume` 进程；找到就激活对应 TTY 的 Terminal tab；找不到才新建 tab 并运行 `codex resume --include-non-interactive --cd <项目路径> <sessionId>`。
+- **Why（为什么这么做）**：
+  - 用户截图显示两个 Terminal 窗口标题都被 Codex TUI 改成了 `codex resume --include-non-interactive --cd ... <sessionId>`，而不是此前设置的 `todonotes-codex-<sessionId>`。
+  - 实测 AppleScript 读取到的 `custom title` 也只有 `todonotes`，无法依赖完整标题识别同一会话。
+  - 运行中的 `codex resume` 进程必然绑定某个 Terminal TTY；Terminal tab 自身也暴露同一个 TTY，因此按 TTY 匹配比按标题更可靠。
+- **How（怎么实现的）**：
+  - 重复打开调用链：
+    - 用户右键选择“打开本页 Codex 会话”
+    - `openCodexSession` 调用 `findRunningCodexResumeTty(sessionId)`
+    - 如果 `ps` 发现已有 `codex resume ... <sessionId>`，例如 TTY 是 `ttys117`
+    - `activateTerminalTabByTty("/dev/ttys117")` 激活对应 Terminal tab
+    - 不再执行新的 `do script`
+  - 首次打开调用链：
+    - `ps` 没有找到运行中的同会话 `codex resume`
+    - `openCodexSession` 新建 Terminal tab
+    - 执行 `codex resume --include-non-interactive --cd <项目路径> <sessionId>`
+- **用户须知**：
+  - 这次修复生效后，同一个会话重复点击应该只会切回已有 Terminal tab。
+  - 已经被旧版本打开出来的两个重复窗口不会被自动关闭；保留一个正在用的窗口，手动关掉多余的即可。
+- **已知限制**：
+  - 如果 `codex resume` 已经退出，`ps` 找不到运行中的会话，再次点击会重新打开一个 Terminal tab。
+  - 如果同一个 `sessionId` 已经被旧版本打开了多个正在运行的窗口，新逻辑会激活其中一个，但不会主动结束另一个，避免误杀用户正在看的进程。
+- **关联假设**：
+  - 无。本次是根据用户截图和本机 Terminal 属性验证后的交互修复。
+
+## [2026-06-02] M0.14-R1-hotfix4 打开 Codex 会话复用 Terminal tab
+- **What（做了什么）**：
+  - 修改 [src/main/codexRunner.ts](/Users/lmy/proj/Others/todonotes/src/main/codexRunner.ts)：
+    - `openCodexSession` 为每个 Codex 会话生成固定 Terminal tab 标题：`todonotes-codex-<sessionId>`。
+    - 打开终端前，AppleScript 会遍历 Terminal 当前所有窗口和 tab。
+    - 如果某个 tab 的 `custom title` 等于目标标题，或者 tab 名称包含目标标题，就选中该 tab，把它所在窗口提到前台，然后直接返回。
+    - 如果没有找到匹配 tab，才创建新的 Terminal tab，并执行 `codex resume --include-non-interactive --cd <项目路径> <sessionId>`。
+- **Why（为什么这么做）**：
+  - 用户反馈已经开着一个 Codex Terminal 窗口时，每次点击“打开本页 Codex 会话”都会再开一个新的终端窗口。
+  - 原因是 macOS Terminal 的 AppleScript `do script <command>` 没有指定目标 tab 时，会新开一个执行入口；旧实现没有记录“这个 session 已经有对应终端”。
+  - 用固定 tab 标题做去重键，比解析终端正在运行的命令更稳，也不依赖 shell 进程列表。
+- **How（怎么实现的）**：
+  - 打开调用链：
+    - 用户右键选择“打开本页 Codex 会话”
+    - `codex:openSession` 读取当前子页的 `codexSessionId` 和 `codexCwd`
+    - `openCodexSession` 生成目标标题 `todonotes-codex-<sessionId>`
+    - AppleScript 查找 Terminal 已有 tab
+    - 找到则激活已有 tab
+    - 找不到则新建 tab，设置 `custom title`，并运行 `codex resume`
+- **用户须知**：
+  - 同一个子页重复点击“打开本页 Codex 会话”会回到同一个 Terminal tab。
+  - 不同子页如果绑定不同 `codexSessionId`，仍会各自拥有独立 Terminal tab，方便并行查看。
+- **已知限制**：
+  - 如果用户手动关闭了该 Terminal tab，再次点击会重新创建一个。
+  - 如果 Terminal 或 shell 修改了 tab 标题导致固定标题丢失，下一次点击可能仍会新开 tab。
+- **关联假设**：
+  - 无。本次是明确的交互修复。
+
 ## [2026-06-02] M0.14-R1-hotfix3 Sticky 路径弹窗与 Codex 非交互会话打开修复
 - **What（做了什么）**：
   - 修改 [src/renderer/App.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/App.tsx)：

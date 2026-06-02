@@ -1,6 +1,70 @@
 # 项目计划（里程碑驱动）
 
-更新时间：2026-06-02（M0.14-R1-hotfix3 已完成）
+更新时间：2026-06-02（M0.14-R1-hotfix6 已完成）
+
+## M0.14-R1-hotfix6：AI 完成后刷新已打开 Codex 终端
+
+### 任务清单
+
+- [x] 执行内容：后台 AI 完成后激活并刷新当前会话 Terminal tab
+  - 具体执行步骤：
+    1. `codex exec` 成功结束后读取最终 `sessionId`。
+    2. 查找是否已有 `codex resume ... <sessionId>` 终端会话正在运行。
+    3. 如果没有打开过终端，不额外弹出 Terminal。
+    4. 如果已有终端，结束旧的 `codex resume` 进程，并在同一个 TTY 对应的 Terminal tab 里重新执行 `codex resume --include-non-interactive --cd <项目路径> <sessionId>`。
+    5. 激活刷新后的 Terminal tab，让用户直接看到最新对话。
+  - 验收标准：AI 后台处理完成后，已打开的 Codex 终端会刷新到最新对话内容；不会因为刷新再创建额外窗口
+
+- [x] 执行内容：验证并记录
+  - 具体执行步骤：
+    1. 运行 main、preload、renderer 三端 TypeScript 编译检查。
+    2. 运行 `npm test`。
+    3. 更新 `PRD.md`、`plan.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：编译检查和测试通过，文档记录刷新原因、刷新方式和限制
+
+状态：`[x] 已完成`
+
+## M0.14-R1-hotfix5：打开 Codex 会话按 TTY 复用 Terminal tab
+
+### 任务清单
+
+- [x] 执行内容：修正按 Terminal 标题复用失败的问题
+  - 具体执行步骤：
+    1. 通过 `ps -axo tty=,command=` 查找正在运行的 `codex resume ... <sessionId>` 进程。
+    2. 从进程信息中读取 TTY，例如 `ttys117`。
+    3. 用 AppleScript 遍历 Terminal 窗口和 tab，匹配 tab 的 `tty` 属性，例如 `/dev/ttys117`。
+    4. 找到对应 tab 时只激活该 tab；找不到运行中的会话时才新建 Terminal tab。
+  - 验收标准：即使 Terminal 窗口标题被 Codex TUI 改成命令文本，重复点击“打开本页 Codex 会话”也不会再新开第三个窗口
+
+- [x] 执行内容：验证并记录
+  - 具体执行步骤：
+    1. 运行 main、preload、renderer 三端 TypeScript 编译检查。
+    2. 运行 `npm test`。
+    3. 更新 `PRD.md`、`plan.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：编译检查和测试通过，文档记录标题复用失败原因和 TTY 复用策略
+
+状态：`[x] 已完成`
+
+## M0.14-R1-hotfix4：打开 Codex 会话复用 Terminal tab
+
+### 任务清单
+
+- [x] 执行内容：避免每次点击“打开本页 Codex 会话”都新开 Terminal 窗口
+  - 具体执行步骤：
+    1. 为每个 Codex 会话生成固定 Terminal tab 标题 `todonotes-codex-<sessionId>`。
+    2. 打开前遍历 Terminal 已有窗口和 tab。
+    3. 如果找到标题匹配的 tab，只激活该 tab 和所在窗口。
+    4. 如果找不到，再新建 tab 并执行 `codex resume --include-non-interactive --cd <项目路径> <sessionId>`。
+  - 验收标准：同一个子页重复点击“打开本页 Codex 会话”时，复用已有 Terminal tab，不再连续创建多个终端窗口
+
+- [x] 执行内容：验证并记录
+  - 具体执行步骤：
+    1. 运行 main、preload、renderer 三端 TypeScript 编译检查。
+    2. 运行 `npm test`。
+    3. 更新 `plan.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：编译检查和测试通过，文档记录 Terminal tab 复用策略
+
+状态：`[x] 已完成`
 
 ## M0.14-R1-hotfix3：Sticky 路径弹窗与 Codex 非交互会话打开修复
 
