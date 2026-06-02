@@ -1,6 +1,8 @@
 # 项目现状（最后更新：2026-06-02）
 
 ## 项目概述
+- 当前已完成 M0.14-R1-hotfix3：修复 Sticky 便签页首次“用当前块追问 Codex”不弹路径输入框的问题；同时把“打开本页 Codex 会话”改为 Terminal 执行 `codex resume --include-non-interactive --cd <项目路径> <sessionId>`，避免 `codex exec` 非交互会话在 Codex App deep link 中一直 loading。
+- 当前已完成 M0.14-R1-hotfix2：修复 Sticky 独立右键菜单点击“用当前块追问 Codex”无反应的问题；主进程在菜单项选择期间不再发送会清空 action 表的 `window:context-menu-closed` 事件；Codex 项目路径输入框默认填当前项目路径。
 - 当前已完成 M0.14-R1：Codex 子页会话第一版落地；每个子页可保存一个项目路径和一个 Codex 会话 ID，Library 与 Sticky 普通文本块右键支持“用当前块追问 Codex”，同页首次创建会话、后续 resume 续聊，AI 处理中复用等待中状态，成功后转为进行中，失败保持等待中并写“失败”。
 - 当前已完成 M0.13-R31：修复切换到子任务再返回根页时父任务正文被子任务正文覆盖的问题；编辑器延迟保存现在绑定更新发生时的 `taskId + blocks`，任务切换会重建编辑器实例并隔离撤销栈。
 - 当前已完成 M0.13-R30：状态时间弹窗统一快捷时间选项，进行中预计持续时长、待开始预计持续时长、等待中回看时间均提供 5 / 10 / 15 / 20 / 30 / 45 / 60 / 90 / 120 分钟快捷按钮。
@@ -81,8 +83,9 @@
   - 没有会话时执行 `codex exec --json --cd <DIR> <prompt>` 创建会话。
   - 已有会话时执行 `codex exec resume --json <SESSION_ID> <prompt>` 继续同一会话。
   - 处理中把当前块写成 `waiting`，`waitReason=AI处理中`；成功后写成 `doing`；失败后保持 `waiting`，`waitReason=失败`。
-  - 普通文本块右键新增“打开本页 Codex 会话”，有会话时优先尝试官方 deep link `codex://threads/<SESSION_ID>` 跳转 Codex App，失败时打开 Terminal 执行 `codex resume <SESSION_ID>`。
+  - 普通文本块右键新增“打开本页 Codex 会话”，有会话时打开 Terminal 执行 `codex resume --include-non-interactive --cd <DIR> <SESSION_ID>`；`--include-non-interactive` 用于继续 `codex exec` 创建的非交互式会话，`--cd` 用于恢复当前子页绑定的项目目录。
 - 多窗口与 sticky 状态共享：路径化打开、共享书签/皮肤、窗口状态恢复。
+  - Sticky 独立右键菜单在选择菜单项时会抑制随后的 `window:context-menu-closed`，避免关闭事件先到导致 action 表被清空。
 - 编辑器保存一致性：
   - `StickyView` 与 `TaskDetail` 都在编辑器 `onUpdate` 发生时捕获当时的 `taskId` 和 `blocks`
   - 延迟保存触发时使用捕获值，不读取切页后的当前任务或当前编辑器内容
@@ -224,6 +227,7 @@
   - 文档内容与当前实现入口对齐（Library 顶部下拉插入、Sticky 右键插入、任务树四 Tab、同父重名规则）
 
 ## 当前进度
+- 已完成：M0.14-R1-hotfix2（Sticky 右键 Codex 菜单点击无反应修复）。
 - 已完成：M0.14-R1（Codex 子页会话与文本块追问第一版）。
 - 已完成：M0.13-R26-hotfix2（等待中暂停/恢复进行中计时）。
 - 已完成：M0.13-R26-hotfix（底部快捷按钮目标行缓存修复）。
@@ -244,9 +248,9 @@
 - 待开始：M1 ~ M4。
 
 ## 已知问题 & 技术债
-- Codex App 指定会话跳转已使用官方 `codex://threads/<sessionId>` 格式；目标 local thread 需要存在于当前机器的 Codex 本地会话记录里。
+- Codex App 指定会话 deep link 的官方格式是 `codex://threads/<sessionId>`，但当前 `codex exec` 创建的非交互式会话实测会在 App 中 loading；第一版默认改用终端 `codex resume --include-non-interactive` 打开。
 - 第一版不做 worktree，多条 AI 任务如果同时指向同一个项目路径，仍可能并发修改同一工作区。
-- 第一版不内嵌完整对话和 diff 展示，完整查看依赖 Codex App 或终端 `codex resume`。
+- 第一版不内嵌完整对话和 diff 展示，完整查看依赖终端 `codex resume --include-non-interactive`。
 - 状态到点通知使用当前应用会话内存去重；应用重启后会补查已到点状态块并可能再次发送一次系统通知。
 - 块级状态当前仅覆盖 `paragraph`、`heading`、`listItem`、`taskItem`，不支持对子任务链接卡片 `taskLink` 直接设状态。
 - 当前版本不兼容旧 `dueAt` 截止时间数据，也不迁移旧手动待处理块书签；旧任务页书签仍可作为页面书签保留，但不再作为文本块工作流入口。

@@ -1,6 +1,58 @@
 # 项目计划（里程碑驱动）
 
-更新时间：2026-06-02（M0.14-R1 已完成）
+更新时间：2026-06-02（M0.14-R1-hotfix3 已完成）
+
+## M0.14-R1-hotfix3：Sticky 路径弹窗与 Codex 非交互会话打开修复
+
+### 任务清单
+
+- [x] 执行内容：修复 Sticky 便签页首次 Codex 项目路径弹窗缺失
+  - 具体执行步骤：
+    1. 检查 `App.tsx` 的 Library 与 Sticky 两个窗口分支。
+    2. 在 Sticky 分支中挂载与 Library 一致的 `PromptModal`。
+    3. 让 `requestTitle` 在 Sticky 窗口也能正常提交或取消。
+  - 验收标准：Sticky 便签页右键选择“用当前块追问 Codex”时，如果当前子页没有项目路径，会弹出“配置项目路径”输入框
+
+- [x] 执行内容：修复 `codex exec` 会话通过 Codex App deep link 打开后 loading 的问题
+  - 具体执行步骤：
+    1. 保留 `codexSessionId` 作为当前子页保存的 Codex 线程 UUID。
+    2. 将“打开本页 Codex 会话”改为打开 macOS Terminal。
+    3. Terminal 中执行 `codex resume --include-non-interactive --cd <项目路径> <sessionId>`。
+    4. `--include-non-interactive` 用于包含 `codex exec` 生成的非交互式会话；`--cd` 用于指定续聊工作目录。
+  - 验收标准：点击“打开本页 Codex 会话”后不会停留在 Codex App loading，而是进入可继续该会话的 Codex 终端界面
+
+- [x] 执行内容：验证并记录
+  - 具体执行步骤：
+    1. 运行 main、preload、renderer 三端 TypeScript 编译检查。
+    2. 运行 `npm test`。
+    3. 更新 `PRD.md`、`plan.md`、`ASSUMPTIONS.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：编译检查和测试通过，文档记录故障原因、修复方式和当前打开会话策略
+
+状态：`[x] 已完成`
+
+## M0.14-R1-hotfix2：Sticky 右键 Codex 菜单点击无反应修复
+
+### 任务清单
+
+- [x] 执行内容：修复独立右键菜单 selected / closed 事件竞态
+  - 具体执行步骤：
+    1. 在主进程记录正在执行菜单项选择的 owner window ID。
+    2. `selectContextMenuItem` 发送 `window:context-menu-selected` 前写入该标记。
+    3. popup 关闭时如果检测到该标记，就跳过 `window:context-menu-closed`。
+  - 验收标准：Sticky 右键点击“用当前块追问 Codex”后，不会因为 closed 事件先清空 action 表而无反应
+
+- [x] 执行内容：优化首次项目路径配置输入框
+  - 具体执行步骤：
+    1. 将首次配置 Codex 项目路径的默认值设置为 `/Users/lmy/proj/Others/todonotes`。
+  - 验收标准：第一次发送当前块到 Codex 时，路径输入框不再是空白，用户可以直接确认或修改
+
+- [x] 执行内容：验证并记录
+  - 具体执行步骤：
+    1. 运行 main 和 renderer TypeScript 编译检查。
+    2. 更新 `plan.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：编译检查通过，文档记录故障原因和修复方式
+
+状态：`[x] 已完成`
 
 ## M0.14-R1：Codex 子页会话与文本块追问第一版
 

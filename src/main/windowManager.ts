@@ -27,6 +27,7 @@ const windows = new Map<string, BrowserWindow>();
 const windowStates = new Map<string, WindowState>();
 const skinPanels = new Map<string, BrowserWindow>();
 const contextMenuPanels = new Map<string, BrowserWindow>();
+const contextMenuSelectingOwnerIds = new Set<string>();
 let isQuitting = false;
 
 function getRendererUrl(
@@ -547,6 +548,9 @@ export function showContextMenuPanel(ownerWindowId: string, clickX: number, clic
     owner.removeListener("resize", handleOwnerResized);
     owner.removeListener("closed", handleOwnerClosed);
     contextMenuPanels.delete(ownerWindowId);
+    if (contextMenuSelectingOwnerIds.delete(ownerWindowId)) {
+      return;
+    }
     if (!owner.isDestroyed()) {
       owner.webContents.send("window:context-menu-closed", { windowId: ownerWindowId });
     }
@@ -570,6 +574,7 @@ export function selectContextMenuItem(ownerWindowId: string, itemId: string) {
     hideContextMenuPanel(ownerWindowId);
     return;
   }
+  contextMenuSelectingOwnerIds.add(ownerWindowId);
   owner.webContents.send("window:context-menu-selected", { windowId: ownerWindowId, itemId });
   hideContextMenuPanel(ownerWindowId);
 }

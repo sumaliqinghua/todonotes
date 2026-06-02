@@ -1,5 +1,4 @@
 import { spawn } from "child_process";
-import { shell } from "electron";
 
 interface CodexRunResult {
   sessionId: string | null;
@@ -74,17 +73,14 @@ export function runCodexBlockPrompt(input: { sessionId?: string | null; cwd: str
   });
 }
 
-export async function openCodexSession(sessionId: string) {
-  const appUrl = `codex://threads/${encodeURIComponent(sessionId)}`;
-  const appError = await shell.openExternal(appUrl).then(
-    () => null,
-    (error) => error
-  );
-  if (!appError) {
-    return { opened: true, method: "app" as const };
-  }
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
 
-  const terminalScript = `tell application "Terminal"\n  activate\n  do script "codex resume ${sessionId.replace(/"/g, '\\"')}"\nend tell`;
+export async function openCodexSession(sessionId: string, cwd?: string | null) {
+  const cdArg = cwd?.trim() ? ` --cd ${shellQuote(cwd.trim())}` : "";
+  const command = `codex resume --include-non-interactive${cdArg} ${shellQuote(sessionId)}`;
+  const terminalScript = `tell application "Terminal"\n  activate\n  do script ${JSON.stringify(command)}\nend tell`;
   await new Promise<void>((resolve, reject) => {
     const child = spawn("osascript", ["-e", terminalScript], { stdio: "ignore" });
     child.on("error", reject);

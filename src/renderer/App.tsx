@@ -333,7 +333,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     const input = await requestTitle({
       title: "配置项目路径",
       placeholder: "请输入 Codex 运行的项目绝对路径",
-      defaultValue: ""
+      defaultValue: "/Users/lmy/proj/Others/todonotes"
     });
     const cwd = input?.trim();
     return cwd || null;
@@ -938,6 +938,22 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           onBookmarksChange={(nextBookmarks) => {
             setStickyBookmarks(nextBookmarks);
             api.invoke("window:updateState", { windowId, stickyBookmarks: nextBookmarks });
+          }}
+        />
+        <PromptModal
+          open={Boolean(promptState)}
+          title={promptState?.title ?? ""}
+          placeholder={promptState?.placeholder}
+          defaultValue={promptState?.defaultValue}
+          onSubmit={(value) => {
+            const resolve = promptState?.resolve;
+            setPromptState(null);
+            resolve?.(value || null);
+          }}
+          onCancel={() => {
+            const resolve = promptState?.resolve;
+            setPromptState(null);
+            resolve?.(null);
           }}
         />
       </div>

@@ -300,7 +300,7 @@ export function registerIpcHandlers() {
       return { opened: false, method: "none" as const, message: "当前子页还没有 Codex 会话" };
     }
     try {
-      return await openCodexSession(sessionId);
+      return await openCodexSession(sessionId, task.codexCwd);
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : "打开 Codex 会话失败";
       return { opened: false, method: "none" as const, message };

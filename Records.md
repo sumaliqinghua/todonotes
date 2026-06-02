@@ -1,5 +1,81 @@
 # 实现记录（Records）
 
+## [2026-06-02] M0.14-R1-hotfix3 Sticky 路径弹窗与 Codex 非交互会话打开修复
+- **What（做了什么）**：
+  - 修改 [src/renderer/App.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/App.tsx)：
+    - 在 Sticky 窗口分支中挂载 `PromptModal`。
+    - `PromptModal` 是项目现有的文本输入弹窗组件，`requestTitle` 会通过它向用户收集一个字符串；本次用于首次配置 Codex 项目路径。
+    - 之前 Library 分支有该组件，Sticky 分支提前 `return`，导致右键“用当前块追问 Codex”调用 `requestTitle` 后没有任何弹窗可以响应，Promise 一直等待。
+  - 修改 [src/main/codexRunner.ts](/Users/lmy/proj/Others/todonotes/src/main/codexRunner.ts)：
+    - 移除默认 `shell.openExternal("codex://threads/<sessionId>")` 的打开路径。
+    - 新增 `shellQuote`，用于把路径和会话 ID 安全拼进终端 shell 命令；例如路径里有空格或单引号时不会破坏命令结构。
+    - `openCodexSession` 现在打开 macOS Terminal，并执行 `codex resume --include-non-interactive --cd <项目路径> <sessionId>`。
+    - `--include-non-interactive` 的含义是允许 Codex CLI 继续非交互式会话；本项目用 `codex exec` 创建会话，正属于这一类。
+    - `--cd <项目路径>` 的含义是指定 Codex 续聊时的工作目录；这里使用当前子页保存的 `codexCwd`。
+  - 修改 [src/main/ipc/handlers.ts](/Users/lmy/proj/Others/todonotes/src/main/ipc/handlers.ts)：
+    - `codex:openSession` 调用 `openCodexSession` 时传入 `task.codexCwd`，让终端续聊能站在该子页绑定的项目目录。
+- **Why（为什么这么做）**：
+  - 用户反馈重启 `npm run dev` 后，Library 窗口可以弹出路径输入框，但 Sticky 便签页不行。代码检查后确认 Sticky 分支没有挂载 `PromptModal`，不是 Codex CLI 或右键菜单本身的问题。
+  - 用户还反馈点击“打开本页 Codex 对话”能跳转到 Codex App，但目标会话一直 loading。官方 `codex://threads/<SESSION_UUID>` 格式没有错，但当前第一版会话由 `codex exec` 创建，属于非交互式会话；Electron 的 `shell.openExternal` 只知道协议已被系统接收，无法判断 Codex App 后续是否真正加载出了该线程。
+  - 因此第一版把“查看/继续完整对话”落到终端 `codex resume --include-non-interactive`，这是当前对 `codex exec` 会话更确定的路径。
+- **How（怎么实现的）**：
+  - Sticky 路径弹窗调用链：
+    - 用户在 Sticky 普通文本块右键
+    - 选择“用当前块追问 Codex”
+    - `App.sendBlockToCodex` 检查当前子页没有 `codexCwd`
+    - `ensureCodexCwd` 调用 `requestTitle`
+    - Sticky 分支中的 `PromptModal` 渲染“配置项目路径”输入框
+    - 用户确认后继续调用 `codex:sendBlockPrompt`
+  - 打开会话调用链：
+    - 用户右键选择“打开本页 Codex 会话”
+    - `codex:openSession` 读取当前子页的 `codexSessionId` 和 `codexCwd`
+    - `openCodexSession` 生成终端命令 `codex resume --include-non-interactive --cd <codexCwd> <codexSessionId>`
+    - 主进程通过 `osascript` 激活 macOS Terminal 并执行该命令
+- **用户须知**：
+  - 当前“打开本页 Codex 会话”会直接打开终端，不再默认打开 Codex App。
+  - `codexSessionId` 仍然是 Codex 本地线程 UUID；未来如果 Codex App 能稳定展示 `codex exec` 的非交互会话，可以再把 App deep link 恢复为默认入口。
+- **已知限制**：
+  - 终端 resume 需要本机已安装并登录 Codex CLI。
+  - 第一版仍不在 todonotes 内嵌完整对话、diff 或工具调用流。
+- **关联假设**：
+  - 见 `ASSUMPTIONS.md` 中“[2026-06-02/M0.14-R1-hotfix3] Codex exec 非交互会话优先用终端 resume 打开”。
+
+## [2026-06-02] M0.14-R1-hotfix2 Sticky 右键 Codex 菜单点击无反应修复
+- **What（做了什么）**：
+  - 修改 [src/main/windowManager.ts](/Users/lmy/proj/Others/todonotes/src/main/windowManager.ts)：
+    - 新增 `contextMenuSelectingOwnerIds`。这个集合用于记录“某个 Sticky 右键菜单正在执行菜单项选择”。
+    - `selectContextMenuItem` 在发送 `window:context-menu-selected` 前先把 owner window ID 写入 `contextMenuSelectingOwnerIds`。
+    - context-menu popup 关闭时，如果发现该 owner window ID 处于选择中，就不再发送 `window:context-menu-closed`。
+    - 这样可以避免 `window:context-menu-closed` 先到达渲染层，把 action 表清空，导致 `window:context-menu-selected` 找不到对应动作。
+  - 修改 [src/renderer/App.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/App.tsx)：
+    - 第一次配置 Codex 项目路径时，输入框默认填入 `/Users/lmy/proj/Others/todonotes`。
+- **Why（为什么这么做）**：
+  - 用户反馈在 Sticky 右键菜单中点击“用当前块追问 Codex”后，没有弹出项目路径输入框，也没有任何反应。
+  - Sticky 的右键菜单不是普通 DOM 浮层，而是独立 popup window。点击菜单项时主进程会发送“选中菜单项”，随后关闭 popup；popup 关闭又会发送“菜单关闭”。这两个事件到渲染进程的顺序不稳定。
+  - 如果“菜单关闭”先到，`App.tsx` 会清空 `contextMenuActionsRef`；随后“选中菜单项”到达时已经找不到 action，于是表现为无反应。
+- **How（怎么实现的）**：
+  - 修复前事件流：
+    - 用户点击菜单项
+    - 主进程发送 `window:context-menu-selected`
+    - 主进程关闭 popup
+    - popup closed 发送 `window:context-menu-closed`
+    - 渲染层可能先处理 closed，清空 action 表
+    - selected 到达后找不到 action
+  - 修复后事件流：
+    - 用户点击菜单项
+    - 主进程标记该 owner 正在选择菜单项
+    - 主进程发送 `window:context-menu-selected`
+    - 主进程关闭 popup
+    - popup closed 检测到“正在选择”，跳过 `window:context-menu-closed`
+    - 渲染层处理 selected，正常执行“用当前块追问 Codex”
+- **用户须知**：
+  - 现在 Sticky 右键点击“用当前块追问 Codex”应能弹出“配置项目路径”输入框。
+  - 输入框会默认填当前项目路径，仍可改成其他绝对路径。
+- **已知限制**：
+  - 本次修复的是 Sticky 独立右键菜单的事件竞态；Codex CLI 是否执行成功仍取决于本机 Codex 登录状态、项目路径是否正确、以及 Codex CLI 是否可用。
+- **关联假设**：
+  - 无。用户提供了明确故障现象，代码中也定位到事件顺序竞态。
+
 ## [2026-06-02] M0.14-R1-hotfix Codex App deep link 改为官方 threads 格式
 - **What（做了什么）**：
   - 修改 [src/main/codexRunner.ts](/Users/lmy/proj/Others/todonotes/src/main/codexRunner.ts)：
