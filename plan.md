@@ -1,6 +1,57 @@
 # 项目计划（里程碑驱动）
 
-更新时间：2026-04-29（M0.13-R31 已完成）
+更新时间：2026-06-02（M0.14-R1 已完成）
+
+## M0.14-R1：Codex 子页会话与文本块追问第一版
+
+### 任务清单
+
+- [x] 执行内容：为子页保存 Codex 项目路径和会话 ID
+  - 具体执行步骤：
+    1. 给 `tasks` 表新增 `codex_cwd` 和 `codex_session_id` 两列。
+    2. 在 `Task` 类型中新增 `codexCwd` 和 `codexSessionId` 字段。
+    3. 在 `task:update` 写入链路中支持保存这两个字段。
+  - 验收标准：每个子页可以独立保存一个 Codex 运行路径和一个 Codex 会话 ID；老数据库启动时自动补列，不破坏已有任务数据
+
+- [x] 执行内容：实现文本块右键“用当前块追问 Codex”
+  - 具体执行步骤：
+    1. 在 `TaskDetail` 和 `StickyView` 普通文本块右键菜单中新增“用当前块追问 Codex”。
+    2. 右键时按点击位置定位当前块，读取当前块文本作为 prompt。
+    3. 当前块为空时提示，不启动 Codex。
+    4. 开始前如果当前子页没有 `codexCwd`，先弹出项目路径输入框。
+  - 验收标准：Library 详情页和 Sticky 便签都能从文本块发起 Codex 追问；取消路径配置不会误写块状态
+
+- [x] 执行内容：实现 Codex 创建会话和 resume 续聊
+  - 具体执行步骤：
+    1. 新增 `codex:sendBlockPrompt` IPC。
+    2. 当前子页没有 `codexSessionId` 时执行 `codex exec --json --cd <项目路径> <当前块文本>`。
+    3. 当前子页已有 `codexSessionId` 时执行 `codex exec resume --json <sessionId> <当前块文本>`。
+    4. 从 Codex JSONL 事件中读取 `thread_id` 并写回当前子页。
+  - 验收标准：同一个子页永远复用同一个 Codex 会话；同页后续文本块都会作为该会话的新输入
+
+- [x] 执行内容：复用块状态表达 AI 处理进度
+  - 具体执行步骤：
+    1. 路径确认后，把当前块写成 `waiting`（等待中），`waitReason` 写为 `AI处理中`。
+    2. Codex 成功结束后，主进程把该块写成 `doing`（进行中）。
+    3. Codex 执行失败后，主进程保持该块为 `waiting`，`waitReason` 写为 `失败`。
+  - 验收标准：AI 运行期间块出现在等待中；AI 处理好后块进入进行中；失败时块仍在等待中并显示失败
+
+- [x] 执行内容：提供打开完整 Codex 对话入口
+  - 具体执行步骤：
+    1. 在普通文本块右键菜单中新增“打开本页 Codex 会话”。
+    2. 当前子页没有 `codexSessionId` 时禁用入口。
+    3. 有会话时优先尝试 `codex://session/<sessionId>` 打开 Codex App。
+    4. 如果 App 跳转失败，降级为打开 macOS Terminal 并执行 `codex resume <sessionId>`。
+  - 验收标准：已有会话的子页可以从右键菜单进入完整 Codex 对话；没有会话的子页不会显示可点击的无效入口
+
+- [x] 执行内容：补充文档并完成验证
+  - 具体执行步骤：
+    1. 更新 `PRD.md`、`plan.md`、`ASSUMPTIONS.md`、`Records.md`、`PROJECT_STATUS.md`。
+    2. 运行 main、preload、renderer 三端 TypeScript 编译检查。
+    3. 运行 `npm test`。
+  - 验收标准：测试和 TypeScript 检查通过；文档说明新增字段、IPC、状态流转、Codex App 跳转降级策略和已知限制
+
+状态：`[x] 已完成`
 
 ## M0.13-R31：切页后父任务内容被子任务内容覆盖修复
 

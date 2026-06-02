@@ -9,6 +9,7 @@ import TitleBar from "./components/TitleBar";
 import PromptModal from "./components/PromptModal";
 import { useAppStore, type LibraryTab } from "./store/useAppStore";
 import { appendTaskLinkToBlocksEnd, hasTaskLinkByTaskId, removeTaskLinksByTaskId } from "../shared/taskBlocksSync";
+import { updateBlockStatusInBlocks } from "../shared/blockStatus";
 
 interface Props {
   windowId: string;
@@ -321,6 +322,68 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     }
     if (currentTaskIdRef.current) {
       await loadTask(currentTaskIdRef.current);
+    }
+  };
+
+  const ensureCodexCwd = async (task: Task) => {
+    const existing = task.codexCwd?.trim();
+    if (existing) {
+      return existing;
+    }
+    const input = await requestTitle({
+      title: "配置项目路径",
+      placeholder: "请输入 Codex 运行的项目绝对路径",
+      defaultValue: ""
+    });
+    const cwd = input?.trim();
+    return cwd || null;
+  };
+
+  const sendBlockToCodex = async (input: { task: Task; blockId: string; blockText: string; blocks: any }) => {
+    const prompt = input.blockText.trim();
+    if (!prompt) {
+      alert("当前文本块没有可发送内容");
+      return;
+    }
+    const cwd = await ensureCodexCwd(input.task);
+    if (!cwd) {
+      alert("未配置项目路径，已取消发送");
+      return;
+    }
+    const waitingBlocks = updateBlockStatusInBlocks(input.blocks, input.blockId, {
+      workStatus: "waiting",
+      workStatusUpdatedAt: Date.now(),
+      plannedStartAt: null,
+      plannedDurationMinutes: null,
+      waitReason: "AI处理中",
+      waitReviewAt: null
+    });
+    try {
+      await api.invoke("task:update", {
+        id: input.task.id,
+        blocks: waitingBlocks.blocks,
+        codexCwd: cwd
+      });
+      await api.invoke("codex:sendBlockPrompt", {
+        taskId: input.task.id,
+        blockId: input.blockId,
+        prompt,
+        cwd
+      });
+      await loadTask(input.task.id);
+      if (windowType === "library") {
+        await refreshLibrary(searchQuery, libraryTab);
+      }
+    } catch (error) {
+      await loadTask(input.task.id);
+      alert(errorToMessage(error, "发送到 Codex 失败"));
+    }
+  };
+
+  const openCodexSessionForTask = async (task: Task) => {
+    const result = await api.invoke("codex:openSession", { taskId: task.id });
+    if (!result.opened) {
+      alert(result.message ?? "当前子页还没有 Codex 会话");
     }
   };
 
@@ -859,6 +922,8 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           onToggleLinkedTaskComplete={toggleLinkedTaskComplete}
           onRenameTaskTitle={renameTask}
           onRequestTitle={requestTitle}
+          onSendBlockToCodex={sendBlockToCodex}
+          onOpenCodexSession={openCodexSessionForTask}
           onShowMenu={showMenu}
           isPinned={alwaysOnTop}
           onTogglePin={() => {
@@ -955,6 +1020,8 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             onToggleLinkedTaskComplete={toggleLinkedTaskComplete}
             onRenameTaskTitle={renameTask}
             onRequestTitle={requestTitle}
+            onSendBlockToCodex={sendBlockToCodex}
+            onOpenCodexSession={openCodexSessionForTask}
             onShowMenu={showMenu}
             />
           </div>

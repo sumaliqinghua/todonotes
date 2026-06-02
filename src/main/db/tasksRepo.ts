@@ -14,6 +14,8 @@ function rowToTask(row: any): Task {
     id: row.id,
     title: row.title,
     blocks: JSON.parse(row.blocks),
+    codexCwd: typeof row.codex_cwd === "string" && row.codex_cwd.trim() ? row.codex_cwd : null,
+    codexSessionId: typeof row.codex_session_id === "string" && row.codex_session_id.trim() ? row.codex_session_id : null,
     isCompleted: row.is_completed === 1,
     isArchived: row.is_archived === 1,
     isDeleted: row.is_deleted === 1,
@@ -41,7 +43,7 @@ export function createTask(input: TaskCreateInput): Task {
   const id = uuidv4();
   const blocks = input.blocks ?? DEFAULT_BLOCKS;
   const stmt = db.prepare(
-    "INSERT INTO tasks (id, title, blocks, is_completed, is_archived, is_deleted, deleted_at, created_at, updated_at) VALUES (?, ?, ?, 0, 0, 0, NULL, ?, ?)"
+    "INSERT INTO tasks (id, title, blocks, codex_cwd, codex_session_id, is_completed, is_archived, is_deleted, deleted_at, created_at, updated_at) VALUES (?, ?, ?, NULL, NULL, 0, 0, 0, NULL, ?, ?)"
   );
   stmt.run(id, input.title, JSON.stringify(blocks), now, now);
   updateFts(id, input.title, blocks);
@@ -94,15 +96,19 @@ export function updateTask(input: TaskUpdateInput): Task {
   const next = {
     title: input.title ?? existing.title,
     blocks: input.blocks ?? existing.blocks,
+    codexCwd: input.codexCwd === undefined ? existing.codexCwd : input.codexCwd,
+    codexSessionId: input.codexSessionId === undefined ? existing.codexSessionId : input.codexSessionId,
     isCompleted: input.isCompleted ?? existing.isCompleted,
     isArchived: input.isArchived ?? existing.isArchived
   };
   const stmt = db.prepare(
-    "UPDATE tasks SET title = ?, blocks = ?, is_completed = ?, is_archived = ?, updated_at = ? WHERE id = ?"
+    "UPDATE tasks SET title = ?, blocks = ?, codex_cwd = ?, codex_session_id = ?, is_completed = ?, is_archived = ?, updated_at = ? WHERE id = ?"
   );
   stmt.run(
     next.title,
     JSON.stringify(next.blocks),
+    next.codexCwd && next.codexCwd.trim() ? next.codexCwd.trim() : null,
+    next.codexSessionId && next.codexSessionId.trim() ? next.codexSessionId.trim() : null,
     next.isCompleted ? 1 : 0,
     next.isArchived ? 1 : 0,
     now,

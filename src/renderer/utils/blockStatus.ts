@@ -10,7 +10,7 @@ import { generateNodeId } from "./nodeId";
 const STATUS_NODE_TYPES = new Set(["paragraph", "heading", "listItem", "taskItem"]);
 const STATUS_ATTR_KEYS = ["workStatus", "workStatusUpdatedAt", "plannedStartAt", "plannedDurationMinutes", "waitReason", "waitReviewAt"] as const;
 
-interface StatusNodeTarget {
+export interface StatusNodeTarget {
   pos: number;
   node: ProseMirrorNode;
   nodeName: string;

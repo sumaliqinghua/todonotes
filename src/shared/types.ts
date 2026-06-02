@@ -4,6 +4,8 @@ export interface Task {
   id: string;
   title: string;
   blocks: JsonValue;
+  codexCwd: string | null;
+  codexSessionId: string | null;
   isCompleted: boolean;
   isArchived: boolean;
   isDeleted: boolean;
@@ -84,8 +86,22 @@ export interface TaskUpdateInput {
   id: string;
   title?: string;
   blocks?: JsonValue;
+  codexCwd?: string | null;
+  codexSessionId?: string | null;
   isCompleted?: boolean;
   isArchived?: boolean;
+}
+
+export interface CodexSendBlockPromptInput {
+  taskId: string;
+  blockId: string;
+  prompt: string;
+  cwd: string;
+}
+
+export interface CodexSendBlockPromptResult {
+  sessionId: string | null;
+  finalMessage: string;
 }
 
 export interface ReminderCreateInput {

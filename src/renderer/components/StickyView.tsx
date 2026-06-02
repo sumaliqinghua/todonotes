@@ -56,6 +56,8 @@ interface Props {
   onToggleLinkedTaskComplete: (taskId: string, nextCompleted: boolean) => Promise<void>;
   onRenameTaskTitle: (taskId: string, title: string) => Promise<void>;
   onRequestTitle: (options: { title: string; placeholder?: string; defaultValue?: string }) => Promise<string | null>;
+  onSendBlockToCodex: (input: { task: Task; blockId: string; blockText: string; blocks: any }) => Promise<void>;
+  onOpenCodexSession: (task: Task) => Promise<void>;
   onShowMenu: (menu: ContextMenuState | null) => void;
   onHistoryBack: () => void;
   onHistoryForward: () => void;
@@ -107,6 +109,8 @@ export default function StickyView({
   onToggleLinkedTaskComplete,
   onRenameTaskTitle,
   onRequestTitle,
+  onSendBlockToCodex,
+  onOpenCodexSession,
   onShowMenu,
   onHistoryBack,
   onHistoryForward,
@@ -1782,11 +1786,53 @@ export default function StickyView({
           label: "状态标记...",
           disabled: true
         };
+    const codexMenuItems = statusTarget
+      ? [
+          {
+            label: "用当前块追问 Codex",
+            action: () => {
+              const targetPos = "blockPos" in statusTarget ? statusTarget.blockPos : statusTarget.pos;
+              const node = editor.state.doc.nodeAt(targetPos);
+              const blockText = node?.textContent.trim() ?? "";
+              if (!blockText) {
+                alert("当前文本块没有可发送内容");
+                return;
+              }
+              void onSendBlockToCodex({
+                task,
+                blockId: statusTarget.blockId,
+                blockText,
+                blocks: editor.getJSON()
+              });
+            }
+          },
+          {
+            label: "打开本页 Codex 会话",
+            disabled: !task.codexSessionId,
+            action: () => {
+              void onOpenCodexSession(task);
+            }
+          }
+        ]
+      : [
+          {
+            label: "用当前块追问 Codex",
+            disabled: true
+          },
+          {
+            label: "打开本页 Codex 会话",
+            disabled: !task.codexSessionId,
+            action: () => {
+              void onOpenCodexSession(task);
+            }
+          }
+        ];
 
     onShowMenu({
       x: event.clientX,
       y: event.clientY,
       items: [
+        ...codexMenuItems,
         statusMenuItem,
         priorityMenuItem,
         ...(canBookmarkCurrentTask ? [addCurrentTaskBookmarkMenuItem] : []),

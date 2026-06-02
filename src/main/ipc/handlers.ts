@@ -16,6 +16,7 @@ import {
   getPriorityBlocks,
   listStatusBlocksByRootTaskId
 } from "../db/tasksRepo";
+import { runCodexBlockPrompt, openCodexSession } from "../codexRunner";
 import { createEdge, deleteEdge, deleteEdgesByChildId } from "../db/edgesRepo";
 import { createReminder, deleteReminder, listDueReminders, listRemindersByTask, markReminderDone } from "../db/remindersRepo";
 import { addAttachment, getAttachment, listAttachments } from "../db/attachmentsRepo";
@@ -39,6 +40,7 @@ import {
   normalizeTaskTitle,
   syncChildStateInBlocks
 } from "../../shared/taskBlocksSync";
+import { updateBlockStatusInBlocks } from "../../shared/blockStatus";
 
 function resolveValidationParentIds(options?: { excludeTaskId?: string; parentId?: string }) {
   const parentIds = new Set<string>();
@@ -78,6 +80,26 @@ function assertUniqueTaskTitle(title: string, options?: { excludeTaskId?: string
 
 function isBlocksPayload(value: unknown): boolean {
   return Boolean(value) && typeof value === "object";
+}
+
+function updateCodexBlockStatus(taskId: string, blockId: string, status: "waiting" | "doing", waitReason = "") {
+  const task = getTaskById(taskId);
+  if (!task) {
+    return;
+  }
+  const updated = updateBlockStatusInBlocks(task.blocks, blockId, {
+    workStatus: status,
+    workStatusUpdatedAt: Date.now(),
+    plannedStartAt: null,
+    plannedDurationMinutes: null,
+    waitReason: status === "waiting" ? waitReason : "",
+    waitReviewAt: null
+  });
+  if (!updated.changed) {
+    return;
+  }
+  updateTask({ id: taskId, blocks: updated.blocks });
+  broadcast("task:updated", { taskId });
 }
 
 function syncParentBlocksForChild(taskId: string, previousTitle: string | undefined, currentTitle: string, isCompleted: boolean) {
@@ -230,6 +252,59 @@ export function registerIpcHandlers() {
 
   ipcMain.handle("task:listStatusBlocksByRoot", (_event, input: Parameters<IpcInvokeMap["task:listStatusBlocksByRoot"]>[0]) => {
     return listStatusBlocksByRootTaskId(input.rootTaskId);
+  });
+
+  ipcMain.handle("codex:sendBlockPrompt", async (_event, input: Parameters<IpcInvokeMap["codex:sendBlockPrompt"]>[0]) => {
+    const task = getTaskById(input.taskId);
+    if (!task) {
+      throw new Error("任务不存在，无法发送到 Codex");
+    }
+    const cwd = input.cwd.trim();
+    if (!cwd) {
+      throw new Error("请先配置项目路径");
+    }
+    if (!input.prompt.trim()) {
+      throw new Error("当前文本块没有可发送内容");
+    }
+
+    if (task.codexCwd !== cwd) {
+      updateTask({ id: task.id, codexCwd: cwd });
+    }
+
+    try {
+      const result = await runCodexBlockPrompt({
+        sessionId: task.codexSessionId,
+        cwd,
+        prompt: input.prompt
+      });
+      const nextSessionId = result.sessionId ?? task.codexSessionId ?? null;
+      if (nextSessionId && nextSessionId !== task.codexSessionId) {
+        updateTask({ id: task.id, codexSessionId: nextSessionId });
+        broadcast("task:updated", { taskId: task.id });
+      }
+      updateCodexBlockStatus(task.id, input.blockId, "doing");
+      return {
+        sessionId: nextSessionId,
+        finalMessage: result.finalMessage
+      };
+    } catch (error) {
+      updateCodexBlockStatus(task.id, input.blockId, "waiting", "失败");
+      throw error;
+    }
+  });
+
+  ipcMain.handle("codex:openSession", async (_event, input: Parameters<IpcInvokeMap["codex:openSession"]>[0]) => {
+    const task = getTaskById(input.taskId);
+    const sessionId = task?.codexSessionId;
+    if (!sessionId) {
+      return { opened: false, method: "none" as const, message: "当前子页还没有 Codex 会话" };
+    }
+    try {
+      return await openCodexSession(sessionId);
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : "打开 Codex 会话失败";
+      return { opened: false, method: "none" as const, message };
+    }
   });
 
   ipcMain.handle("task:createFromBlock", (_event, input: Parameters<IpcInvokeMap["task:createFromBlock"]>[0]) => {

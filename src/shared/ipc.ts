@@ -1,6 +1,8 @@
 import type {
   Attachment,
   AttachmentAddInput,
+  CodexSendBlockPromptInput,
+  CodexSendBlockPromptResult,
   StatusBlock,
   PriorityBlock,
   Reminder,
@@ -33,6 +35,9 @@ export interface IpcInvokeMap {
   "task:archiveCompletedChildren": (input: { parentId: string }) => { archivedIds: string[] };
   "task:getPriorityBlocks": () => PriorityBlock[];
   "task:listStatusBlocksByRoot": (input: { rootTaskId: string }) => StatusBlock[];
+
+  "codex:sendBlockPrompt": (input: CodexSendBlockPromptInput) => CodexSendBlockPromptResult;
+  "codex:openSession": (input: { taskId: string }) => { opened: boolean; method: "app" | "terminal" | "none"; message?: string };
 
   "edge:create": (input: { parentId: string; childId: string }) => void;
   "edge:delete": (input: { parentId: string; childId: string }) => void;

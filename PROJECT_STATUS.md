@@ -1,6 +1,7 @@
-# 项目现状（最后更新：2026-04-29）
+# 项目现状（最后更新：2026-06-02）
 
 ## 项目概述
+- 当前已完成 M0.14-R1：Codex 子页会话第一版落地；每个子页可保存一个项目路径和一个 Codex 会话 ID，Library 与 Sticky 普通文本块右键支持“用当前块追问 Codex”，同页首次创建会话、后续 resume 续聊，AI 处理中复用等待中状态，成功后转为进行中，失败保持等待中并写“失败”。
 - 当前已完成 M0.13-R31：修复切换到子任务再返回根页时父任务正文被子任务正文覆盖的问题；编辑器延迟保存现在绑定更新发生时的 `taskId + blocks`，任务切换会重建编辑器实例并隔离撤销栈。
 - 当前已完成 M0.13-R30：状态时间弹窗统一快捷时间选项，进行中预计持续时长、待开始预计持续时长、等待中回看时间均提供 5 / 10 / 15 / 20 / 30 / 45 / 60 / 90 / 120 分钟快捷按钮。
 - 当前已完成 M0.13-R29：Sticky 不再默认添加根页页面书签；历史遗留的 `rootTaskId` 页面级书签会在加载和同步时清理；Sticky 根页右键不再提供“添加当前页到书签”，子任务页仍保留页面书签入口。
@@ -60,8 +61,10 @@
   - 渲染层：React 18 + Zustand
   - 编辑器：Tiptap（StarterKit + TaskList + TaskItem + 自定义 `taskLink` 节点）
   - 数据层：better-sqlite3 + SQLite FTS5
+  - Codex 集成：Electron 主进程通过 `child_process.spawn` 调用本机 `codex exec` 和 `codex exec resume`
 - 核心架构设计（简要描述）
   - 任务数据主存于 `tasks`，父子关系由 `edges` 独立维护，正文链接块仅作入口展示。
+  - Codex 子页会话元数据存于 `tasks.codex_cwd` 和 `tasks.codex_session_id`；文本块作为每次追问输入，块状态仍写在 Tiptap blocks attrs 中。
   - `Library` 与 `Sticky` 双窗口并行，依赖 IPC + 广播事件同步状态。
 - 关键目录结构
   - `src/main/`：IPC、窗口管理、数据库仓储
@@ -71,6 +74,14 @@
 
 ## 已完成功能
 - P0 主流程：任务树管理、搜索、编辑器基础块、块转子任务、链接块导航。
+- Codex 子页会话第一版：
+  - 每个子页保存 `codexCwd`（Codex 项目路径）和 `codexSessionId`（Codex 会话 ID）。
+  - Library 详情页和 Sticky 便签普通文本块右键新增“用当前块追问 Codex”。
+  - 首次追问前要求输入项目绝对路径；路径保存到当前子页，后续复用。
+  - 没有会话时执行 `codex exec --json --cd <DIR> <prompt>` 创建会话。
+  - 已有会话时执行 `codex exec resume --json <SESSION_ID> <prompt>` 继续同一会话。
+  - 处理中把当前块写成 `waiting`，`waitReason=AI处理中`；成功后写成 `doing`；失败后保持 `waiting`，`waitReason=失败`。
+  - 普通文本块右键新增“打开本页 Codex 会话”，有会话时优先尝试 Codex App 跳转，失败时打开 Terminal 执行 `codex resume <SESSION_ID>`。
 - 多窗口与 sticky 状态共享：路径化打开、共享书签/皮肤、窗口状态恢复。
 - 编辑器保存一致性：
   - `StickyView` 与 `TaskDetail` 都在编辑器 `onUpdate` 发生时捕获当时的 `taskId` 和 `blocks`
@@ -213,6 +224,7 @@
   - 文档内容与当前实现入口对齐（Library 顶部下拉插入、Sticky 右键插入、任务树四 Tab、同父重名规则）
 
 ## 当前进度
+- 已完成：M0.14-R1（Codex 子页会话与文本块追问第一版）。
 - 已完成：M0.13-R26-hotfix2（等待中暂停/恢复进行中计时）。
 - 已完成：M0.13-R26-hotfix（底部快捷按钮目标行缓存修复）。
 - 已完成：M0.13-R26（进行中预计时长与底部快捷状态按钮）。
@@ -232,6 +244,9 @@
 - 待开始：M1 ~ M4。
 
 ## 已知问题 & 技术债
+- Codex App 指定会话跳转目前按 `codex://session/<sessionId>` best-effort 尝试；如果真实协议不同，需要替换 [src/main/codexRunner.ts](/Users/lmy/proj/Others/todonotes/src/main/codexRunner.ts) 中的 App URL。
+- 第一版不做 worktree，多条 AI 任务如果同时指向同一个项目路径，仍可能并发修改同一工作区。
+- 第一版不内嵌完整对话和 diff 展示，完整查看依赖 Codex App 或终端 `codex resume`。
 - 状态到点通知使用当前应用会话内存去重；应用重启后会补查已到点状态块并可能再次发送一次系统通知。
 - 块级状态当前仅覆盖 `paragraph`、`heading`、`listItem`、`taskItem`，不支持对子任务链接卡片 `taskLink` 直接设状态。
 - 当前版本不兼容旧 `dueAt` 截止时间数据，也不迁移旧手动待处理块书签；旧任务页书签仍可作为页面书签保留，但不再作为文本块工作流入口。

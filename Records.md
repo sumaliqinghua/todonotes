@@ -1,5 +1,89 @@
 # 实现记录（Records）
 
+## [2026-06-02] M0.14-R1 Codex 子页会话与文本块追问第一版
+- **What（做了什么）**：
+  - 修改 [src/shared/types.ts](/Users/lmy/proj/Others/todonotes/src/shared/types.ts)：
+    - 给 `Task` 新增 `codexCwd` 和 `codexSessionId`。
+    - `codexCwd` 表示当前子页绑定的 Codex 项目路径；路径会作为 Codex 命令的运行目录。
+    - `codexSessionId` 表示当前子页绑定的 Codex 会话 ID；同一子页后续追问都复用这个 ID。
+    - 给 `TaskUpdateInput` 新增可选的 `codexCwd` 和 `codexSessionId`，让 `task:update` 能保存这两个字段。
+    - 新增 `CodexSendBlockPromptInput` 和 `CodexSendBlockPromptResult`，分别描述发送文本块到 Codex 的输入和返回值。
+  - 修改 [src/shared/ipc.ts](/Users/lmy/proj/Others/todonotes/src/shared/ipc.ts)：
+    - 新增 `codex:sendBlockPrompt` IPC。它接收 `taskId`、`blockId`、`prompt`、`cwd`，用于把某个文本块发送到当前子页的 Codex 会话。
+    - 新增 `codex:openSession` IPC。它接收 `taskId`，用于打开该子页已保存的 Codex 会话。
+  - 修改 [src/main/db/schema.ts](/Users/lmy/proj/Others/todonotes/src/main/db/schema.ts)：
+    - 在 `tasks` 表新增 `codex_cwd` 和 `codex_session_id` 两列。
+    - 在迁移函数中用 `PRAGMA table_info(tasks)` 检查老数据库是否已有这两列；没有时用 `ALTER TABLE` 补齐。
+  - 修改 [src/main/db/tasksRepo.ts](/Users/lmy/proj/Others/todonotes/src/main/db/tasksRepo.ts)：
+    - `rowToTask` 读取 `codex_cwd` 和 `codex_session_id`，转换为前端使用的 `codexCwd` 和 `codexSessionId`。
+    - `createTask` 新建任务时默认把这两个字段写成 `NULL`。
+    - `updateTask` 支持单独更新 `codexCwd`、`codexSessionId`，没有传入时保留原值。
+  - 新增 [src/main/codexRunner.ts](/Users/lmy/proj/Others/todonotes/src/main/codexRunner.ts)：
+    - `runCodexBlockPrompt` 负责执行 Codex CLI。
+    - 当前子页没有会话 ID 时执行 `codex exec --json --cd <cwd> <prompt>`。
+    - 当前子页已有会话 ID 时执行 `codex exec resume --json <sessionId> <prompt>`。
+    - 解析 Codex JSONL 输出，读取 `thread_id` 作为会话 ID，并记录最后一条 `agent_message` 作为最终消息。
+    - `openCodexSession` 负责打开完整对话：先尝试 `codex://session/<sessionId>`，失败后用 macOS Terminal 执行 `codex resume <sessionId>`。
+  - 修改 [src/main/ipc/handlers.ts](/Users/lmy/proj/Others/todonotes/src/main/ipc/handlers.ts)：
+    - 接入 `codex:sendBlockPrompt`。
+    - 发送前校验任务存在、项目路径不为空、文本块 prompt 不为空。
+    - Codex 成功后保存新产生的 `codexSessionId`，并把目标块改为 `doing`。
+    - Codex 失败后把目标块保持为 `waiting`，`waitReason` 写成 `失败`。
+    - 接入 `codex:openSession`，没有会话时返回不可打开，有会话时调用 `openCodexSession`。
+  - 修改 [src/renderer/App.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/App.tsx)：
+    - 新增 `ensureCodexCwd`。这个函数在子页没有项目路径时弹出路径输入框；用户取消时不继续发送。
+    - 新增 `sendBlockToCodex`。它先确认项目路径，再把当前块写成 `waiting + AI处理中`，保存 blocks 和路径，然后调用 `codex:sendBlockPrompt`。
+    - 新增 `openCodexSessionForTask`，用于从右键菜单打开当前子页的 Codex 会话。
+    - 把这两个函数传给 `TaskDetail` 和 `StickyView`。
+  - 修改 [src/renderer/components/TaskDetail.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/TaskDetail.tsx)：
+    - 普通文本块右键菜单新增“用当前块追问 Codex”和“打开本页 Codex 会话”。
+    - 右键时根据点击坐标同步编辑器选区，避免拿到旧光标所在块。
+    - 空块不会发送，会直接提示“当前文本块没有可发送内容”。
+  - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：
+    - 普通文本块右键菜单新增同样的两个 Codex 入口。
+    - 复用 Sticky 现有的状态目标解析逻辑，优先按右键点击位置定位块。
+  - 修改 [src/renderer/utils/blockStatus.ts](/Users/lmy/proj/Others/todonotes/src/renderer/utils/blockStatus.ts)：
+    - 导出 `StatusNodeTarget` 类型，方便 `TaskDetail` 使用状态目标的 `pos`、`blockId` 等字段。
+- **Why（为什么这么做）**：
+  - 用户本轮明确收敛为第一版：子页可设置项目路径，子页保存一个 Codex 会话 ID，文本块右键“用当前块追问”，没有会话就创建，有会话就 resume，暂不做 worktree、AI 工作台、内置完整 diff、总结、验收清单和放弃改动。
+  - 选择 `codex exec` 而不是 `codex app-server`，是因为第一版只需要后台执行和会话续跑，不需要在应用内完整重建 Codex 聊天 UI；`codex exec --json` 已能提供会话 ID 和最终结果，接入成本更低。
+  - 状态复用按用户决策执行：AI 处理中用等待中，处理好了用进行中，失败时继续等待中并写“失败”。这样不新增状态枚举，现有状态工作台就能承接 AI 任务提醒。
+- **How（怎么实现的）**：
+  - 首次追问调用链：
+    - 用户右键文本块
+    - `TaskDetail` 或 `StickyView` 读取当前块文本和 `blockId`
+    - `App.sendBlockToCodex` 检查当前子页是否已有 `codexCwd`
+    - 如果没有路径，弹出路径输入框
+    - 路径确认后，`updateBlockStatusInBlocks` 把当前块写成 `waiting + AI处理中`
+    - `task:update` 保存 blocks 和 `codexCwd`
+    - `codex:sendBlockPrompt` 执行 `codex exec --json --cd <cwd> <prompt>`
+    - `codexRunner` 从 JSONL 事件读取 `thread_id`
+    - 主进程把 `thread_id` 写入 `codexSessionId`
+    - Codex 成功结束后，主进程把当前块写成 `doing`
+  - 后续追问调用链：
+    - 同一子页再次右键文本块
+    - `App.sendBlockToCodex` 复用该子页的 `codexCwd`
+    - 主进程读取该子页的 `codexSessionId`
+    - 执行 `codex exec resume --json <sessionId> <prompt>`
+    - 结束后按同样规则回写块状态
+  - 打开完整对话调用链：
+    - 用户右键选择“打开本页 Codex 会话”
+    - `codex:openSession` 读取当前子页 `codexSessionId`
+    - 先尝试 `codex://session/<sessionId>` 打开 Codex App
+    - 如果失败，打开 Terminal 并执行 `codex resume <sessionId>`
+- **用户须知**：
+  - “用当前块追问 Codex”只在普通文本块右键菜单中出现；第一版不把子任务链接卡片当成 Codex 输入块。
+  - 第一次使用某个子页的 Codex 能力时，必须输入项目绝对路径；该路径保存后，同一子页后续自动复用。
+  - 一个子页永远只绑定一个 Codex 会话；第一版没有重置会话或新建第二会话入口。
+  - AI 运行时该块会显示等待中，原因是 `AI处理中`；成功后转为进行中；失败后仍是等待中，原因是 `失败`。
+- **已知限制**：
+  - 第一版不做 worktree，多条 AI 任务如果指向同一个项目路径，仍可能同时修改同一个工作区；用户本轮明确暂不需要 worktree。
+  - 第一版不在 todonotes 内展示完整对话和 diff，完整查看依赖 Codex App 或终端 `codex resume`。
+  - Codex App 指定会话 deep link 按 `codex://session/<sessionId>` 做 best-effort 尝试；如果真实协议不同，需要后续替换跳转 URL。
+  - `codex:sendBlockPrompt` 当前等待本次 Codex 执行完成后才返回；第一版没有在 UI 内展示实时 token、命令或工具调用流。
+- **关联假设**：
+  - 见 `ASSUMPTIONS.md` 中“[2026-06-02/M0.14-R1] Codex App 指定会话跳转先按 best-effort deep link 处理”。
+
 ## [2026-04-29] M0.13-R31 切页后父任务内容被子任务内容覆盖修复
 - **What（做了什么）**：
   - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：

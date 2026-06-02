@@ -19,7 +19,7 @@ import { CollapsibleListItem } from "../utils/listCollapse";
 import { updateTaskItemIndent } from "../utils/taskIndent";
 import { UniqueId } from "../utils/nodeId";
 import { Priority } from "../utils/priorityExtension";
-import { BlockStatus, syncBlockStatusDom } from "../utils/blockStatus";
+import { BlockStatus, getStatusNodeSelectionSnapshot, syncBlockStatusDom } from "../utils/blockStatus";
 
 const DEFAULT_BLOCKS = {
   type: "doc",
@@ -39,6 +39,8 @@ interface Props {
   onToggleLinkedTaskComplete: (taskId: string, nextCompleted: boolean) => Promise<void>;
   onRenameTaskTitle: (taskId: string, title: string) => Promise<void>;
   onRequestTitle: (options: { title: string; placeholder?: string; defaultValue?: string }) => Promise<string | null>;
+  onSendBlockToCodex: (input: { task: Task; blockId: string; blockText: string; blocks: any }) => Promise<void>;
+  onOpenCodexSession: (task: Task) => Promise<void>;
   onShowMenu: (menu: ContextMenuState | null) => void;
   onHistoryBack: () => void;
   onHistoryForward: () => void;
@@ -59,6 +61,8 @@ export default function TaskDetail({
   onToggleLinkedTaskComplete,
   onRenameTaskTitle,
   onRequestTitle,
+  onSendBlockToCodex,
+  onOpenCodexSession,
   onShowMenu,
   onHistoryBack,
   onHistoryForward,
@@ -575,6 +579,10 @@ export default function TaskDetail({
       return;
     }
 
+    const clickedPos = editor.view.posAtCoords({ left: event.clientX, top: event.clientY });
+    if (typeof clickedPos?.pos === "number") {
+      editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(clickedPos.pos))));
+    }
     const { state } = editor;
     const { from, to, $from, $to } = state.selection;
     const rawText = state.doc.textBetween(from, to, "\n").trim();
@@ -620,10 +628,53 @@ export default function TaskDetail({
       ]
     };
 
+    const statusTarget = editor ? getStatusNodeSelectionSnapshot(editor) : null;
+    const codexMenuItems = statusTarget
+      ? [
+          {
+            label: "用当前块追问 Codex",
+            action: () => {
+              const node = editor.state.doc.nodeAt(statusTarget.pos);
+              const blockText = node?.textContent.trim() ?? "";
+              if (!blockText) {
+                alert("当前文本块没有可发送内容");
+                return;
+              }
+              void onSendBlockToCodex({
+                task,
+                blockId: statusTarget.blockId,
+                blockText,
+                blocks: editor.getJSON()
+              });
+            }
+          },
+          {
+            label: "打开本页 Codex 会话",
+            disabled: !task.codexSessionId,
+            action: () => {
+              void onOpenCodexSession(task);
+            }
+          }
+        ]
+      : [
+          {
+            label: "用当前块追问 Codex",
+            disabled: true
+          },
+          {
+            label: "打开本页 Codex 会话",
+            disabled: !task.codexSessionId,
+            action: () => {
+              void onOpenCodexSession(task);
+            }
+          }
+        ];
+
     onShowMenu({
       x: event.clientX,
       y: event.clientY,
       items: [
+        ...codexMenuItems,
         {
           label: "添加子任务",
           action: () => {

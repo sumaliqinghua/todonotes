@@ -6,6 +6,8 @@ export function migrate(db: Database.Database) {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       blocks TEXT NOT NULL,
+      codex_cwd TEXT,
+      codex_session_id TEXT,
       is_completed INTEGER NOT NULL DEFAULT 0,
       is_archived INTEGER NOT NULL DEFAULT 0,
       is_deleted INTEGER NOT NULL DEFAULT 0,
@@ -91,5 +93,15 @@ export function migrate(db: Database.Database) {
   const hasStickyBookmarks = columns.some((column) => column.name === "sticky_bookmarks");
   if (!hasStickyBookmarks) {
     db.exec("ALTER TABLE window_states ADD COLUMN sticky_bookmarks TEXT NOT NULL DEFAULT '[]'");
+  }
+
+  const taskColumns = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+  const hasCodexCwd = taskColumns.some((column) => column.name === "codex_cwd");
+  if (!hasCodexCwd) {
+    db.exec("ALTER TABLE tasks ADD COLUMN codex_cwd TEXT");
+  }
+  const hasCodexSessionId = taskColumns.some((column) => column.name === "codex_session_id");
+  if (!hasCodexSessionId) {
+    db.exec("ALTER TABLE tasks ADD COLUMN codex_session_id TEXT");
   }
 }
