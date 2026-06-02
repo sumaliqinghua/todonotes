@@ -75,7 +75,7 @@ export function runCodexBlockPrompt(input: { sessionId?: string | null; cwd: str
 }
 
 export async function openCodexSession(sessionId: string) {
-  const appUrl = `codex://session/${encodeURIComponent(sessionId)}`;
+  const appUrl = `codex://threads/${encodeURIComponent(sessionId)}`;
   const appError = await shell.openExternal(appUrl).then(
     () => null,
     (error) => error

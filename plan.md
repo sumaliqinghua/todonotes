@@ -40,7 +40,7 @@
   - 具体执行步骤：
     1. 在普通文本块右键菜单中新增“打开本页 Codex 会话”。
     2. 当前子页没有 `codexSessionId` 时禁用入口。
-    3. 有会话时优先尝试 `codex://session/<sessionId>` 打开 Codex App。
+    3. 有会话时优先尝试官方 deep link `codex://threads/<sessionId>` 打开 Codex App。
     4. 如果 App 跳转失败，降级为打开 macOS Terminal 并执行 `codex resume <sessionId>`。
   - 验收标准：已有会话的子页可以从右键菜单进入完整 Codex 对话；没有会话的子页不会显示可点击的无效入口
 

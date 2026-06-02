@@ -81,7 +81,7 @@
   - 没有会话时执行 `codex exec --json --cd <DIR> <prompt>` 创建会话。
   - 已有会话时执行 `codex exec resume --json <SESSION_ID> <prompt>` 继续同一会话。
   - 处理中把当前块写成 `waiting`，`waitReason=AI处理中`；成功后写成 `doing`；失败后保持 `waiting`，`waitReason=失败`。
-  - 普通文本块右键新增“打开本页 Codex 会话”，有会话时优先尝试 Codex App 跳转，失败时打开 Terminal 执行 `codex resume <SESSION_ID>`。
+  - 普通文本块右键新增“打开本页 Codex 会话”，有会话时优先尝试官方 deep link `codex://threads/<SESSION_ID>` 跳转 Codex App，失败时打开 Terminal 执行 `codex resume <SESSION_ID>`。
 - 多窗口与 sticky 状态共享：路径化打开、共享书签/皮肤、窗口状态恢复。
 - 编辑器保存一致性：
   - `StickyView` 与 `TaskDetail` 都在编辑器 `onUpdate` 发生时捕获当时的 `taskId` 和 `blocks`
@@ -244,7 +244,7 @@
 - 待开始：M1 ~ M4。
 
 ## 已知问题 & 技术债
-- Codex App 指定会话跳转目前按 `codex://session/<sessionId>` best-effort 尝试；如果真实协议不同，需要替换 [src/main/codexRunner.ts](/Users/lmy/proj/Others/todonotes/src/main/codexRunner.ts) 中的 App URL。
+- Codex App 指定会话跳转已使用官方 `codex://threads/<sessionId>` 格式；目标 local thread 需要存在于当前机器的 Codex 本地会话记录里。
 - 第一版不做 worktree，多条 AI 任务如果同时指向同一个项目路径，仍可能并发修改同一工作区。
 - 第一版不内嵌完整对话和 diff 展示，完整查看依赖 Codex App 或终端 `codex resume`。
 - 状态到点通知使用当前应用会话内存去重；应用重启后会补查已到点状态块并可能再次发送一次系统通知。

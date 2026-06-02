@@ -1,5 +1,29 @@
 # 实现记录（Records）
 
+## [2026-06-02] M0.14-R1-hotfix Codex App deep link 改为官方 threads 格式
+- **What（做了什么）**：
+  - 修改 [src/main/codexRunner.ts](/Users/lmy/proj/Others/todonotes/src/main/codexRunner.ts)：
+    - 将打开 Codex App 会话的 URL 从 `codex://session/<sessionId>` 改为官方格式 `codex://threads/<sessionId>`。
+    - `sessionId` 指 Codex 本地线程 UUID，也就是 `codex exec --json` 输出中的 `thread_id`，或 Codex App `/status` 中看到的 thread ID。
+  - 修改 [plan.md](/Users/lmy/proj/Others/todonotes/plan.md)、[Records.md](/Users/lmy/proj/Others/todonotes/Records.md)、[PROJECT_STATUS.md](/Users/lmy/proj/Others/todonotes/PROJECT_STATUS.md)、[ASSUMPTIONS.md](/Users/lmy/proj/Others/todonotes/ASSUMPTIONS.md)：
+    - 把旧的 `codex://session/<sessionId>` 文案替换为 `codex://threads/<sessionId>`。
+    - 将原本“best-effort deep link 待确认”的假设更新为已确认的官方 deep link。
+- **Why（为什么这么做）**：
+  - 用户提供了当前 Codex manual 官方 “Deep links” 小节信息：打开本地线程的正式格式是 `codex://threads/<SESSION_UUID>`。
+  - 旧的 `codex://session/<sessionId>` 不是官方格式，会导致“打开本页 Codex 会话”无法稳定跳转到目标线程。
+- **How（怎么实现的）**：
+  - 调用链保持不变：
+    - 用户右键选择“打开本页 Codex 会话”
+    - `codex:openSession` 读取当前子页的 `codexSessionId`
+    - `openCodexSession` 调用 Electron `shell.openExternal("codex://threads/<sessionId>")`
+    - 如果 App 跳转失败，仍降级到 macOS Terminal 执行 `codex resume <sessionId>`
+- **用户须知**：
+  - Codex App deep link 只打开当前机器上存在的 local thread；如果该线程记录不存在于本机 Codex 会话记录里，仍需要依赖终端 resume 或重新创建会话。
+- **已知限制**：
+  - 仍保留 Terminal 降级路径，用于 Codex App 未安装、协议处理失败或本地线程无法打开的情况。
+- **关联假设**：
+  - `ASSUMPTIONS.md` 中“Codex App 指定会话跳转使用官方 threads deep link”已标记为已确认。
+
 ## [2026-06-02] M0.14-R1 Codex 子页会话与文本块追问第一版
 - **What（做了什么）**：
   - 修改 [src/shared/types.ts](/Users/lmy/proj/Others/todonotes/src/shared/types.ts)：
@@ -23,7 +47,7 @@
     - 当前子页没有会话 ID 时执行 `codex exec --json --cd <cwd> <prompt>`。
     - 当前子页已有会话 ID 时执行 `codex exec resume --json <sessionId> <prompt>`。
     - 解析 Codex JSONL 输出，读取 `thread_id` 作为会话 ID，并记录最后一条 `agent_message` 作为最终消息。
-    - `openCodexSession` 负责打开完整对话：先尝试 `codex://session/<sessionId>`，失败后用 macOS Terminal 执行 `codex resume <sessionId>`。
+    - `openCodexSession` 负责打开完整对话：先尝试官方 deep link `codex://threads/<sessionId>`，失败后用 macOS Terminal 执行 `codex resume <sessionId>`。
   - 修改 [src/main/ipc/handlers.ts](/Users/lmy/proj/Others/todonotes/src/main/ipc/handlers.ts)：
     - 接入 `codex:sendBlockPrompt`。
     - 发送前校验任务存在、项目路径不为空、文本块 prompt 不为空。
@@ -69,7 +93,7 @@
   - 打开完整对话调用链：
     - 用户右键选择“打开本页 Codex 会话”
     - `codex:openSession` 读取当前子页 `codexSessionId`
-    - 先尝试 `codex://session/<sessionId>` 打开 Codex App
+    - 先尝试 `codex://threads/<sessionId>` 打开 Codex App
     - 如果失败，打开 Terminal 并执行 `codex resume <sessionId>`
 - **用户须知**：
   - “用当前块追问 Codex”只在普通文本块右键菜单中出现；第一版不把子任务链接卡片当成 Codex 输入块。
@@ -79,10 +103,10 @@
 - **已知限制**：
   - 第一版不做 worktree，多条 AI 任务如果指向同一个项目路径，仍可能同时修改同一个工作区；用户本轮明确暂不需要 worktree。
   - 第一版不在 todonotes 内展示完整对话和 diff，完整查看依赖 Codex App 或终端 `codex resume`。
-  - Codex App 指定会话 deep link 按 `codex://session/<sessionId>` 做 best-effort 尝试；如果真实协议不同，需要后续替换跳转 URL。
+  - Codex App 指定会话 deep link 已按官方格式 `codex://threads/<sessionId>` 实现。
   - `codex:sendBlockPrompt` 当前等待本次 Codex 执行完成后才返回；第一版没有在 UI 内展示实时 token、命令或工具调用流。
 - **关联假设**：
-  - 见 `ASSUMPTIONS.md` 中“[2026-06-02/M0.14-R1] Codex App 指定会话跳转先按 best-effort deep link 处理”。
+  - 见 `ASSUMPTIONS.md` 中“[2026-06-02/M0.14-R1] Codex App 指定会话跳转使用官方 threads deep link”。
 
 ## [2026-04-29] M0.13-R31 切页后父任务内容被子任务内容覆盖修复
 - **What（做了什么）**：

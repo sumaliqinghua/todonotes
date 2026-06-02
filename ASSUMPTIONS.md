@@ -1,12 +1,12 @@
 # 假设记录（ASSUMPTIONS）
 
-## [2026-06-02/M0.14-R1] Codex App 指定会话跳转先按 best-effort deep link 处理
+## [2026-06-02/M0.14-R1] Codex App 指定会话跳转使用官方 threads deep link
 
-- **背景**：用户要求“优先尝试 Codex App 跳转查看完整对话；如果没有可用跳转协议，就降级为打开终端执行 `codex resume <sessionId>`”。当前实现阶段没有在本地暴露出可验证的 Codex App 指定会话 deep link。
-- **假设**：第一版先尝试打开 `codex://session/<sessionId>`；如果 Electron `shell.openExternal` 返回失败，就降级为 macOS Terminal 执行 `codex resume <sessionId>`。
-- **理由**：用户明确要求优先尝试 App 跳转，同时也接受没有可用协议时降级到 CLI resume。CLI resume 是当前可验证、可继续完整对话的稳定路径。
-- **影响范围**：如果 Codex App 的真实 deep link 不是 `codex://session/<sessionId>`，需要只替换 `src/main/codexRunner.ts` 中 `openCodexSession` 的 App 跳转 URL，不影响子页路径、会话 ID 保存、文本块追问和状态流转。
-- **状态**：待确认
+- **背景**：用户要求“优先尝试 Codex App 跳转查看完整对话；如果没有可用跳转协议，就降级为打开终端执行 `codex resume <sessionId>`”。用户随后补充了当前 Codex manual 官方 “Deep links” 小节：打开本地线程的正式格式是 `codex://threads/<SESSION_UUID>`。
+- **假设**：第一版使用官方 deep link `codex://threads/<sessionId>`；如果 Electron `shell.openExternal` 返回失败，就降级为 macOS Terminal 执行 `codex resume <sessionId>`。
+- **理由**：`sessionId` 就是 Codex 本地线程 UUID，来源于 `codex exec --json` 输出的 `thread_id` 或 Codex App `/status` 中显示的 thread ID；官方文档明确 `codex://threads/<SESSION_UUID>` 打开 local thread。
+- **影响范围**：该 deep link 只适用于当前机器上存在的 Codex local thread；如果线程记录不存在，仍需要依赖终端 resume 或重新创建会话。
+- **状态**：已确认
 
 ## [2026-04-27/M0.13-R22] 状态工作台不迁移旧 `dueAt` 与旧块书签
 
