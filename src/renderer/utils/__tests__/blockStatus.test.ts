@@ -122,6 +122,7 @@ describe("blockStatus", () => {
 
   it("格式化正文状态徽标和超计划文案", () => {
     expect(formatStatusBadge({ workStatus: "doing" }, now)).toBe("进行中");
+    expect(formatStatusBadge({ workStatus: "doing", waitReason: "AI已返回结果", workStatusUpdatedAt: now - 12 * 60 * 1000 }, now)).toBe("进行中.AI已返回结果:12m");
     expect(formatStatusBadge({ workStatus: "doing", workStatusUpdatedAt: now, plannedDurationMinutes: 45 }, now + 10 * 60 * 1000)).toBe("进行中.45m.剩余:35m");
     expect(formatStatusBadge({ workStatus: "doing", workStatusUpdatedAt: now, plannedDurationMinutes: 10 }, now + 12 * 60 * 1000)).toBe("进行中.超时:2m");
     expect(formatStatusBadge({ workStatus: "waiting", waitReason: "客户确认" }, now)).toBe("等待: 客户确认");

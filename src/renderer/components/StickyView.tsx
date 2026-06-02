@@ -1537,6 +1537,28 @@ export default function StickyView({
     applyDoneStatus(target.blockId);
   };
 
+  const quickSendCurrentBlockToCodex = () => {
+    if (!editor || !task) {
+      return;
+    }
+    const target = requireCurrentStatusTarget();
+    if (!target) {
+      return;
+    }
+    const node = editor.state.doc.nodeAt(target.blockPos);
+    const blockText = node?.textContent.trim() ?? "";
+    if (!blockText) {
+      alert("当前文本块没有可发送内容");
+      return;
+    }
+    void onSendBlockToCodex({
+      task,
+      blockId: target.blockId,
+      blockText,
+      blocks: editor.getJSON()
+    });
+  };
+
   const keepEditorSelectionOnToolbarMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
   };
@@ -2194,6 +2216,9 @@ export default function StickyView({
           </button>
           <button type="button" className="sticky-status-quick-btn" title="标记为已完成" onMouseDown={keepEditorSelectionOnToolbarMouseDown} onClick={quickApplyDone}>
             ✓
+          </button>
+          <button type="button" className="sticky-status-quick-btn" title="用当前块追问 Codex" onMouseDown={keepEditorSelectionOnToolbarMouseDown} onClick={quickSendCurrentBlockToCodex}>
+            AI
           </button>
         </div>
         {orderedWorkbenchEntries.length > 0 ? (

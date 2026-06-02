@@ -1,6 +1,7 @@
 # 项目现状（最后更新：2026-06-02）
 
 ## 项目概述
+- 当前已完成 M0.14-R1-hotfix7：Codex 成功返回后，目标块显示 `进行中.AI已返回结果:xxm`；Sticky 底部快捷状态按钮组新增 `AI` 按钮，可直接对当前块执行“用当前块追问 Codex”。
 - 当前已完成 M0.14-R1-hotfix6：后台 `codex exec` 追问成功后，如果同一会话已有 Terminal tab 打开，会自动重启该 tab 内的 `codex resume` 来刷新最新对话并激活终端；未打开终端时不自动弹出。
 - 当前已完成 M0.14-R1-hotfix5：修正 Terminal tab 复用策略；由于 Codex TUI 会改写窗口标题，当前改为按运行中的 `codex resume ... <sessionId>` 进程 TTY 激活对应 Terminal tab。
 - 当前已完成 M0.14-R1-hotfix4：修复“打开本页 Codex 会话”重复点击会不断新开 Terminal 窗口的问题；现在同一个 `codexSessionId` 会复用固定标题的 Terminal tab。
@@ -85,7 +86,8 @@
   - 首次追问前要求输入项目绝对路径；路径保存到当前子页，后续复用。
   - 没有会话时执行 `codex exec --json --cd <DIR> <prompt>` 创建会话。
   - 已有会话时执行 `codex exec resume --json <SESSION_ID> <prompt>` 继续同一会话。
-  - 处理中把当前块写成 `waiting`，`waitReason=AI处理中`；成功后写成 `doing`；失败后保持 `waiting`，`waitReason=失败`。
+  - 处理中把当前块写成 `waiting`，`waitReason=AI处理中`；成功后写成 `doing`，`waitReason=AI已返回结果`，正文徽标显示 `进行中.AI已返回结果:xxm`；失败后保持 `waiting`，`waitReason=失败`。
+  - Sticky 底部快捷状态按钮组新增 `AI` 按钮，复用当前光标或最近点击块，直接执行“用当前块追问 Codex”。
   - 普通文本块右键新增“打开本页 Codex 会话”，有会话时打开 Terminal 执行 `codex resume --include-non-interactive --cd <DIR> <SESSION_ID>`；`--include-non-interactive` 用于继续 `codex exec` 创建的非交互式会话，`--cd` 用于恢复当前子页绑定的项目目录；重复打开同一个 `SESSION_ID` 时，会先按运行中的 `codex resume` 进程 TTY 激活已有 Terminal tab。
   - 后台 `codex exec` 成功完成后，如果同一 `SESSION_ID` 已有 Terminal tab 打开，会结束旧 TUI 并在同一个 tab 中重新执行 `codex resume`，让终端显示最新对话；如果没打开终端，则不自动弹出。
 - 多窗口与 sticky 状态共享：路径化打开、共享书签/皮肤、窗口状态恢复。

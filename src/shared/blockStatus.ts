@@ -191,8 +191,13 @@ function formatTodoBadge(value: Pick<StatusBlock, "plannedStartAt" | "plannedDur
   return ["待开始", plannedStartAt !== null ? formatClockTime(plannedStartAt) : "", durationText].filter(Boolean).join(".");
 }
 
-function formatDoingBadge(value: Pick<StatusBlock, "workStatusUpdatedAt" | "plannedDurationMinutes">, now: number): string {
+function formatDoingBadge(value: Pick<StatusBlock, "workStatusUpdatedAt" | "plannedDurationMinutes" | "waitReason">, now: number): string {
+  const reason = typeof value.waitReason === "string" ? value.waitReason.trim() : "";
   const startedAt = parseTimestamp(value.workStatusUpdatedAt);
+  if (reason === "AI已返回结果") {
+    const elapsedMinutes = startedAt === null ? 0 : Math.max(0, Math.floor((now - startedAt) / 60000));
+    return `进行中.${reason}:${formatMinutesDuration(elapsedMinutes)}`;
+  }
   const plannedDurationMinutes = parsePositiveInteger(value.plannedDurationMinutes);
   if (startedAt === null || plannedDurationMinutes === null) {
     return "进行中";

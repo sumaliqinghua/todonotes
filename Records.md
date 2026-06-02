@@ -1,5 +1,46 @@
 # 实现记录（Records）
 
+## [2026-06-02] M0.14-R1-hotfix7 AI 返回状态文案与底部 Codex 快捷按钮
+- **What（做了什么）**：
+  - 修改 [src/main/ipc/handlers.ts](/Users/lmy/proj/Others/todonotes/src/main/ipc/handlers.ts)：
+    - `updateCodexBlockStatus` 支持在 `doing` 状态下保留传入的 `waitReason`。
+    - `codex:sendBlockPrompt` 成功后把目标块设置为 `doing`，并写入 `waitReason=AI已返回结果`。
+  - 修改 [src/shared/blockStatus.ts](/Users/lmy/proj/Others/todonotes/src/shared/blockStatus.ts)：
+    - `formatDoingBadge` 识别 `doing + waitReason=AI已返回结果`。
+    - 文案改为 `进行中.AI已返回结果:xxm`，其中 `xxm` 表示从 `workStatusUpdatedAt` 到当前时间经过的分钟数。
+    - 普通手动进行中仍保持原有文案，例如 `进行中.25m.剩余:20m` 或 `进行中.超时:2m`。
+  - 修改 [src/renderer/components/StickyView.tsx](/Users/lmy/proj/Others/todonotes/src/renderer/components/StickyView.tsx)：
+    - 底部快捷状态按钮组新增 `AI` 按钮，标题为“用当前块追问 Codex”。
+    - 新增 `quickSendCurrentBlockToCodex`，复用当前光标或最近点击文本块缓存，读取当前块文本和 `blockId`，调用与右键菜单一致的 `onSendBlockToCodex`。
+  - 修改 [src/renderer/utils/__tests__/blockStatus.test.ts](/Users/lmy/proj/Others/todonotes/src/renderer/utils/__tests__/blockStatus.test.ts)：
+    - 新增断言，覆盖 `doing + AI已返回结果` 的徽标格式。
+- **Why（为什么这么做）**：
+  - 用户希望 AI 返回后不要只显示普通“进行中”，而是能一眼看出这是“AI 已经返回结果，等待用户查看/处理”的状态。
+  - 用户还希望底部常用快捷按钮里直接有 Codex 追问入口，减少从正文右键菜单进入的操作成本。
+- **How（怎么实现的）**：
+  - AI 返回状态流：
+    - 用户发送当前块给 Codex
+    - 块先变为 `waiting + AI处理中`
+    - Codex 成功结束
+    - 主进程写入 `workStatus=doing`
+    - 同时写入 `waitReason=AI已返回结果`
+    - 渲染层格式化为 `进行中.AI已返回结果:xxm`
+  - 底部 AI 按钮调用链：
+    - 用户把光标放到目标文本块，或最近点击过目标文本块
+    - 点击底部 `AI` 按钮
+    - `requireCurrentStatusTarget` 取得当前块
+    - `quickSendCurrentBlockToCodex` 读取块文本
+    - 调用 `onSendBlockToCodex`
+    - 后续流程与右键“用当前块追问 Codex”完全一致
+- **用户须知**：
+  - `进行中.AI已返回结果:0m` 表示 AI 刚返回；分钟数会随状态定时刷新。
+  - 手动把这个块重新设置为普通进行中、等待中、待开始或已完成时，会覆盖或清除该 AI 返回标记。
+  - 底部 `AI` 按钮依赖当前光标或最近点击的文本块；如果没有可识别当前块，会提示先把光标放到目标行。
+- **已知限制**：
+  - 当前仍只支持普通状态文本块，不支持直接对子任务链接卡片 `taskLink` 发送 Codex。
+- **关联假设**：
+  - 无。本次是明确的交互与状态文案修订。
+
 ## [2026-06-02] M0.14-R1-hotfix6 AI 完成后刷新已打开 Codex 终端
 - **What（做了什么）**：
   - 修改 [src/main/codexRunner.ts](/Users/lmy/proj/Others/todonotes/src/main/codexRunner.ts)：

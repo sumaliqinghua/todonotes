@@ -92,7 +92,7 @@ function updateCodexBlockStatus(taskId: string, blockId: string, status: "waitin
     workStatusUpdatedAt: Date.now(),
     plannedStartAt: null,
     plannedDurationMinutes: null,
-    waitReason: status === "waiting" ? waitReason : "",
+    waitReason: status === "waiting" || waitReason ? waitReason : "",
     waitReviewAt: null
   });
   if (!updated.changed) {
@@ -282,7 +282,7 @@ export function registerIpcHandlers() {
         updateTask({ id: task.id, codexSessionId: nextSessionId });
         broadcast("task:updated", { taskId: task.id });
       }
-      updateCodexBlockStatus(task.id, input.blockId, "doing");
+      updateCodexBlockStatus(task.id, input.blockId, "doing", "AI已返回结果");
       if (nextSessionId) {
         await refreshOpenCodexSession(nextSessionId, cwd).catch(() => {
           // 终端刷新失败不影响 AI 执行结果落库。
