@@ -1,4 +1,7 @@
 import { spawn } from "child_process";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 interface CodexRunResult {
   sessionId: string | null;
@@ -30,10 +33,62 @@ function buildCodexArgs(input: { sessionId?: string | null; cwd: string; prompt:
   return ["exec", "--json", "--cd", input.cwd, input.prompt];
 }
 
+function isExecutable(filePath: string) {
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function findExecutableOnPath(command: string) {
+  const pathValue = process.env.PATH ?? "";
+  const match = pathValue
+    .split(path.delimiter)
+    .filter(Boolean)
+    .map((dir) => path.join(dir, command))
+    .find((candidate) => isExecutable(candidate));
+  return match ?? null;
+}
+
+function findNvmCodexExecutable() {
+  const nvmVersionsDir = path.join(os.homedir(), ".nvm", "versions", "node");
+  try {
+    return fs
+      .readdirSync(nvmVersionsDir)
+      .map((version) => path.join(nvmVersionsDir, version, "bin", "codex"))
+      .filter((candidate) => isExecutable(candidate))
+      .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+      .at(-1) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveCodexExecutable() {
+  const configuredPath = process.env.CODEX_CLI_PATH?.trim();
+  if (configuredPath && isExecutable(configuredPath)) {
+    return configuredPath;
+  }
+  return (
+    findExecutableOnPath("codex") ??
+    findNvmCodexExecutable() ??
+    ["/opt/homebrew/bin/codex", "/usr/local/bin/codex", "/Applications/Codex.app/Contents/Resources/codex"]
+      .find((candidate) => isExecutable(candidate)) ??
+    null
+  );
+}
+
 export function runCodexBlockPrompt(input: { sessionId?: string | null; cwd: string; prompt: string }): Promise<CodexRunResult> {
   const args = buildCodexArgs(input);
   return new Promise((resolve, reject) => {
-    const child = spawn("codex", args, {
+    const codexExecutable = resolveCodexExecutable();
+    if (!codexExecutable) {
+      reject(new Error("找不到 Codex CLI。请确认终端里可以执行 codex，或设置 CODEX_CLI_PATH 指向 codex 可执行文件。"));
+      return;
+    }
+    const child = spawn(codexExecutable, args, {
       cwd: input.cwd,
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -201,8 +256,10 @@ async function stopCodexResumeProcesses(resumes: RunningCodexResume[]) {
 }
 
 function buildCodexResumeCommand(sessionId: string, cwd?: string | null) {
+  const codexExecutable = resolveCodexExecutable();
+  const command = codexExecutable ? shellQuote(codexExecutable) : "codex";
   const cdArg = cwd?.trim() ? ` --cd ${shellQuote(cwd.trim())}` : "";
-  return `codex resume --include-non-interactive${cdArg} ${shellQuote(sessionId)}`;
+  return `${command} resume --include-non-interactive${cdArg} ${shellQuote(sessionId)}`;
 }
 
 export async function refreshOpenCodexSession(sessionId: string, cwd?: string | null) {

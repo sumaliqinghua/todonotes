@@ -1,5 +1,44 @@
 # 实现记录（Records）
 
+## [2026-06-04] M0.14-R1-hotfix8 修复 Electron 主进程找不到 Codex CLI
+- **What（做了什么）**：
+  - 修改 [src/main/codexRunner.ts](/Users/lmy/proj/Others/todonotes/src/main/codexRunner.ts)：
+    - 新增 `isExecutable`，用于判断某个文件路径是否存在且可执行。
+    - 新增 `findExecutableOnPath`，用于在当前进程 `PATH` 中查找 `codex`。
+    - 新增 `findNvmCodexExecutable`，用于扫描 `~/.nvm/versions/node/*/bin/codex`，并按版本号自然排序后选择最新可执行项。
+    - 新增 `resolveCodexExecutable`，统一解析 Codex CLI 路径。查找顺序是：
+      1. `CODEX_CLI_PATH` 环境变量。
+      2. 当前进程 `PATH` 中的 `codex`。
+      3. nvm 安装目录 `~/.nvm/versions/node/*/bin/codex`。
+      4. Homebrew 常见路径 `/opt/homebrew/bin/codex`、`/usr/local/bin/codex`。
+      5. Codex App 资源路径 `/Applications/Codex.app/Contents/Resources/codex`。
+    - `runCodexBlockPrompt` 不再直接 `spawn("codex")`，而是 `spawn(<解析出的 Codex 绝对路径>, args)`。
+    - `buildCodexResumeCommand` 也改为优先使用解析出的 Codex 绝对路径，保证 Terminal 中的 `codex resume` 与后台 `codex exec` 尽量来自同一个安装来源。
+- **Why（为什么这么做）**：
+  - 用户反馈发起会话时报错：`Error invoking remote method 'codex:sendBlockPrompt': Error: spawn codex ENOENT`。
+  - `ENOENT` 的意思是“找不到要执行的文件”。这里不是 Codex 本身执行失败，而是 Electron 主进程的环境变量 `PATH` 里没有 `codex`。
+  - 用户终端能执行 `codex`，是因为 zsh/nvm 初始化后把 `/Users/lmy/.nvm/versions/node/v22.21.1/bin` 加到了 `PATH`；Electron 主进程不一定加载这些 shell 初始化脚本。
+- **How（怎么实现的）**：
+  - 后台发送调用链：
+    - 用户点击“用当前块追问 Codex”
+    - `codex:sendBlockPrompt` 调用 `runCodexBlockPrompt`
+    - `runCodexBlockPrompt` 调用 `resolveCodexExecutable`
+    - 找到 `/Users/lmy/.nvm/versions/node/v22.21.1/bin/codex`
+    - 使用这个绝对路径执行 `codex exec --json ...`
+  - 终端查看调用链：
+    - 用户点击“打开本页 Codex 会话”
+    - `buildCodexResumeCommand` 调用同一个解析函数
+    - Terminal 执行 `'<Codex绝对路径>' resume --include-non-interactive --cd <项目路径> <sessionId>`
+- **用户须知**：
+  - 正常情况下不需要配置任何东西，应用会自动查找 nvm 和 Homebrew 下的 Codex CLI。
+  - 如果未来 Codex CLI 安装在非标准位置，可以设置 `CODEX_CLI_PATH`。例如：`CODEX_CLI_PATH=/Users/lmy/.nvm/versions/node/v22.21.1/bin/codex`。
+  - `CODEX_CLI_PATH` 是 Codex CLI 的绝对路径，不是项目路径；项目路径仍然由子页的 `codexCwd` 保存。
+- **已知限制**：
+  - 如果 Codex CLI 完全没有安装，仍会提示“找不到 Codex CLI”。
+  - 如果通过 GUI 方式启动正式打包 App，环境变量注入方式需要按 macOS GUI 应用的环境管理方式配置；开发模式 `npm run dev` 下通常会继承当前终端环境。
+- **关联假设**：
+  - 无。本次是明确的运行环境修复。
+
 ## [2026-06-02] M0.14-R1-hotfix7 AI 返回状态文案与底部 Codex 快捷按钮
 - **What（做了什么）**：
   - 修改 [src/main/ipc/handlers.ts](/Users/lmy/proj/Others/todonotes/src/main/ipc/handlers.ts)：

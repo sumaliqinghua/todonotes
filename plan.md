@@ -1,6 +1,34 @@
 # 项目计划（里程碑驱动）
 
-更新时间：2026-06-02（M0.14-R1-hotfix7 已完成）
+更新时间：2026-06-04（M0.14-R1-hotfix8 已完成）
+
+## M0.14-R1-hotfix8：修复 Electron 主进程找不到 Codex CLI
+
+### 任务清单
+
+- [x] 执行内容：修复 `spawn codex ENOENT`
+  - 具体执行步骤：
+    1. 后台执行 Codex 前解析实际可执行文件路径。
+    2. 优先读取环境变量 `CODEX_CLI_PATH`。
+    3. 其次从当前 `PATH` 查找 `codex`。
+    4. 再扫描 `~/.nvm/versions/node/*/bin/codex`。
+    5. 最后尝试 Homebrew 和 Codex App 常见安装路径。
+  - 验收标准：Electron 主进程即使没有加载 nvm shell 初始化，也能找到本机 Codex CLI
+
+- [x] 执行内容：统一 Terminal resume 使用的 Codex 路径
+  - 具体执行步骤：
+    1. `codex resume` 命令同样使用解析出的 Codex CLI 绝对路径。
+    2. 如果无法解析到绝对路径，才退回 `codex` 命令名。
+  - 验收标准：后台 `codex exec` 和 Terminal `codex resume` 尽量使用同一个 Codex CLI 安装来源
+
+- [x] 执行内容：验证并记录
+  - 具体执行步骤：
+    1. 运行 main、preload、renderer 三端 TypeScript 编译检查。
+    2. 运行 `npm test`。
+    3. 更新 `PRD.md`、`plan.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：编译检查和测试通过，文档记录 `CODEX_CLI_PATH` 的作用与默认查找顺序
+
+状态：`[x] 已完成`
 
 ## M0.14-R1-hotfix7：AI 返回状态文案与底部 Codex 快捷按钮
 

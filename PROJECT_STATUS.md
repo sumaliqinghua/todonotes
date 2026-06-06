@@ -1,6 +1,7 @@
-# 项目现状（最后更新：2026-06-02）
+# 项目现状（最后更新：2026-06-04）
 
 ## 项目概述
+- 当前已完成 M0.14-R1-hotfix8：修复 Electron 主进程 `spawn codex ENOENT`；Codex CLI 现在会按 `CODEX_CLI_PATH`、当前 `PATH`、nvm、Homebrew、Codex App 资源路径自动解析绝对可执行文件。
 - 当前已完成 M0.14-R1-hotfix7：Codex 成功返回后，目标块显示 `进行中.AI已返回结果:xxm`；Sticky 底部快捷状态按钮组新增 `AI` 按钮，可直接对当前块执行“用当前块追问 Codex”。
 - 当前已完成 M0.14-R1-hotfix6：后台 `codex exec` 追问成功后，如果同一会话已有 Terminal tab 打开，会自动重启该 tab 内的 `codex resume` 来刷新最新对话并激活终端；未打开终端时不自动弹出。
 - 当前已完成 M0.14-R1-hotfix5：修正 Terminal tab 复用策略；由于 Codex TUI 会改写窗口标题，当前改为按运行中的 `codex resume ... <sessionId>` 进程 TTY 激活对应 Terminal tab。
@@ -82,6 +83,7 @@
 - P0 主流程：任务树管理、搜索、编辑器基础块、块转子任务、链接块导航。
 - Codex 子页会话第一版：
   - 每个子页保存 `codexCwd`（Codex 项目路径）和 `codexSessionId`（Codex 会话 ID）。
+  - Codex CLI 通过 `resolveCodexExecutable` 自动查找；可用 `CODEX_CLI_PATH` 显式指定 `codex` 可执行文件绝对路径。
   - Library 详情页和 Sticky 便签普通文本块右键新增“用当前块追问 Codex”。
   - 首次追问前要求输入项目绝对路径；路径保存到当前子页，后续复用。
   - 没有会话时执行 `codex exec --json --cd <DIR> <prompt>` 创建会话。
@@ -272,6 +274,7 @@
 - 标题折叠当前只按顶层正文标题区间生效，不支持“任意块范围折叠”或把折叠状态跨窗口/重启持久化。
 
 ## 关键配置 & 环境信息
+- `CODEX_CLI_PATH`：可选环境变量，表示 Codex CLI 可执行文件的绝对路径；当 Electron 主进程无法从 `PATH` 或常见安装目录找到 `codex` 时使用。
 - 包管理：npm（含 `npm run dev` / `npm run test`）。
 - 开发启动：`npm run dev` 现在要求 Vite 绑定 `5173` 成功且 `tcp:5173` ready 后才会启动 Electron；若 `5173` 已被占用，Vite 会直接报错退出，而不会再切到 `5174`。
 - Electron 开发启动：`npm run dev` 通过 `scripts/start-electron-dev.cjs` 启动 Electron，并在子进程环境里删除 `ELECTRON_RUN_AS_NODE`，避免 Electron 被强制按 Node 模式运行。
