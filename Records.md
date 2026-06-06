@@ -1,5 +1,54 @@
 # 实现记录（Records）
 
+## [2026-06-06] Build-mac-hotfix2 修复 Electron 安装包递归打包导致体积膨胀
+- **What（做了什么）**：
+  - 修改 [package.json](/Users/lmy/proj/Others/todonotes/package.json)：
+    - 在 `build.directories.output` 中新增 `release`。`build.directories.output` 是 electron-builder 的最终产物输出目录配置；这次把 `.dmg`、`.blockmap`、`mac-arm64/Notes.app` 等安装包产物统一输出到 `release`，不再和 TypeScript/Vite 编译产物共用 `dist`。
+    - 将 `build.files` 从 `dist/**/*` 改为精确列表：`dist/main/**/*`、`dist/preload/**/*`、`dist/renderer/**/*`、`dist/shared/**/*`、`package.json`。
+    - `build.files` 是 electron-builder 的“放进 App 包里的文件清单”。本次只允许主进程编译产物、preload 编译产物、渲染层静态文件、共享类型/工具编译产物和应用元信息进入 `app.asar`。
+    - 保持 `main` 字段为 `dist/main/main.js`。`main` 是 Electron App 启动时加载的主进程入口；因为 `app.asar` 内仍保留 `dist/main/main.js`，所以入口不需要改。
+  - 修改 [.gitignore](/Users/lmy/proj/Others/todonotes/.gitignore)：
+    - 新增 `release`，避免新生成的安装包目录被 Git 当作未跟踪文件提交。
+  - 修改 [plan.md](/Users/lmy/proj/Others/todonotes/plan.md)：
+    - 新增 `Build-mac-hotfix2` 任务清单，记录原因定位、配置修复、构建验证三项工作，并全部标记为已完成。
+  - 修改 [PRD.md](/Users/lmy/proj/Others/todonotes/PRD.md)：
+    - 在变更历史中记录 mac 安装包体积修复和新的打包目录约定。
+  - 修改 [PROJECT_STATUS.md](/Users/lmy/proj/Others/todonotes/PROJECT_STATUS.md)：
+    - 更新项目最后更新时间、项目概述、构建链路说明、当前进度和已知问题。
+- **Why（为什么这么做）**：
+  - 旧配置里 `build.files` 写成 `dist/**/*`，同时 electron-builder 默认输出目录也是 `dist`。
+  - 这会让“待打包输入目录”和“安装包输出目录”重叠：第二次构建时，`dist/**/*` 会匹配上一次生成的 `Notes-0.1.0-arm64.dmg`、`Notes-0.1.0-arm64.dmg.blockmap`、`mac-arm64/Notes.app` 和 builder 元数据。
+  - 这些历史产物被塞进 `app.asar` 后，新的 `.dmg` 会包含旧 `.dmg` 和旧 `.app`；再下一次构建还会继续吞进更大的产物，体积会滚雪球。
+  - 替代方案一是继续输出到 `dist`，只在 `files` 里写大量排除规则，例如 `!dist/*.dmg`、`!dist/mac-arm64/**`。这个方案容易漏掉新的 builder 产物类型。
+  - 替代方案二是把编译输出目录从 `dist` 全部迁走。这个方案会牵动 `main`、tsconfig、Vite 输出路径和开发脚本，改动面更大。
+  - 最终选择“编译输出继续用 `dist`，安装包输出改到 `release`，并收窄 `files` 白名单”，因为它改动最小、边界最清楚，也最不容易再次递归打包。
+- **How（怎么实现的）**：
+  - 修复前打包链路：
+    - `tsc` / `vite build` 生成 `dist/main`、`dist/preload`、`dist/renderer`、`dist/shared`
+    - electron-builder 输出 `.dmg` 和 `.app` 到 `dist`
+    - 下一次 electron-builder 读取 `dist/**/*`
+    - 旧 `.dmg`、旧 `.app` 被放进新 `app.asar`
+  - 修复后打包链路：
+    - `tsc` / `vite build` 仍生成 `dist/main`、`dist/preload`、`dist/renderer`、`dist/shared`
+    - electron-builder 只读取这四类编译产物和 `package.json`
+    - electron-builder 把最终 `.dmg`、`.blockmap`、`mac-arm64/Notes.app` 输出到 `release`
+    - 下一次构建时，`release` 不在 `build.files` 白名单内，不会进入 `app.asar`
+  - 本次验证结果：
+    - 旧产物 `/Users/lmy/proj/Others/todonotes/dist/Notes-0.1.0-arm64.dmg` 为 `3.2G`。
+    - 新产物 `/Users/lmy/proj/Others/todonotes/release/Notes-0.1.0-arm64.dmg` 为 `103M`（`du` 口径约 `112M`）。
+    - 新 `/Users/lmy/proj/Others/todonotes/release/mac-arm64/Notes.app` 为 `284M`。
+    - 新 `app.asar` 为 `61M`。
+    - `app.asar` 清单检查中，`.dmg`、`.blockmap`、`mac-arm64`、`builder-debug`、`builder-effective`、`latest-mac` 命中数为 `0`。
+- **用户须知**：
+  - 以后运行 `npm run build` 后，安装包在 `/Users/lmy/proj/Others/todonotes/release/Notes-0.1.0-arm64.dmg`。
+  - `/Users/lmy/proj/Others/todonotes/dist` 现在只应视为编译输出目录，主要给 Electron App 内部运行使用；不要再把它当作最终安装包目录。
+  - 旧的 `/Users/lmy/proj/Others/todonotes/dist/Notes-0.1.0-arm64.dmg` 仍留在磁盘上，本次没有删除用户已有构建产物；确认不需要后可以手动清理旧 `dist` 下的 `.dmg`、`.blockmap`、`mac-arm64`。
+- **已知限制**：
+  - 当前 mac 构建仍是未签名本地产物，因为 `build.mac.identity` 仍为 `null`；如果要对外分发，需要补 Apple Developer 签名和公证流程。
+  - 构建日志里出现 `better-sqlite3` 预编译包下载超时，但 electron-builder 随后从源码构建成功；这不是本次体积问题的原因。
+- **关联假设**：
+  - 无。本次是明确的构建配置修复。
+
 ## [2026-06-04] M0.14-R1-hotfix8 修复 Electron 主进程找不到 Codex CLI
 - **What（做了什么）**：
   - 修改 [src/main/codexRunner.ts](/Users/lmy/proj/Others/todonotes/src/main/codexRunner.ts)：

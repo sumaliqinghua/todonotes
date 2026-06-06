@@ -1,6 +1,7 @@
-# 项目现状（最后更新：2026-06-04）
+# 项目现状（最后更新：2026-06-06）
 
 ## 项目概述
+- 当前已完成 Build-mac-hotfix2：修复 Electron mac 安装包递归打包导致体积膨胀的问题；新安装包输出到 `release`，`dist` 只保留编译产物，新 `.dmg` 从旧的 `3.2G` 回落到约 `103M`。
 - 当前已完成 M0.14-R1-hotfix8：修复 Electron 主进程 `spawn codex ENOENT`；Codex CLI 现在会按 `CODEX_CLI_PATH`、当前 `PATH`、nvm、Homebrew、Codex App 资源路径自动解析绝对可执行文件。
 - 当前已完成 M0.14-R1-hotfix7：Codex 成功返回后，目标块显示 `进行中.AI已返回结果:xxm`；Sticky 底部快捷状态按钮组新增 `AI` 按钮，可直接对当前块执行“用当前块追问 Codex”。
 - 当前已完成 M0.14-R1-hotfix6：后台 `codex exec` 追问成功后，如果同一会话已有 Terminal tab 打开，会自动重启该 tab 内的 `codex resume` 来刷新最新对话并激活终端；未打开终端时不自动弹出。
@@ -69,6 +70,7 @@
   - 编辑器：Tiptap（StarterKit + TaskList + TaskItem + 自定义 `taskLink` 节点）
   - 数据层：better-sqlite3 + SQLite FTS5
   - Codex 集成：Electron 主进程通过 `child_process.spawn` 调用本机 `codex exec` 和 `codex exec resume`
+  - 打包工具：electron-builder；编译产物目录是 `dist`，安装包输出目录是 `release`
 - 核心架构设计（简要描述）
   - 任务数据主存于 `tasks`，父子关系由 `edges` 独立维护，正文链接块仅作入口展示。
   - Codex 子页会话元数据存于 `tasks.codex_cwd` 和 `tasks.codex_session_id`；文本块作为每次追问输入，块状态仍写在 Tiptap blocks attrs 中。
@@ -78,6 +80,8 @@
   - `src/renderer/`：UI 组件、编辑器交互、应用状态
   - `src/shared/`：跨进程类型与 IPC 契约
   - 根目录文档：`PRD.md`、`plan.md`、`ASSUMPTIONS.md`、`PROJECT_STATUS.md`、`Records.md`
+  - `dist/`：主进程、preload、渲染层和共享代码的编译输出
+  - `release/`：electron-builder 生成的 `.dmg`、`.blockmap` 和 `mac-arm64/Notes.app`，该目录已加入 `.gitignore`
 
 ## 已完成功能
 - P0 主流程：任务树管理、搜索、编辑器基础块、块转子任务、链接块导航。
@@ -235,6 +239,7 @@
   - 文档内容与当前实现入口对齐（Library 顶部下拉插入、Sticky 右键插入、任务树四 Tab、同父重名规则）
 
 ## 当前进度
+- 已完成：Build-mac-hotfix2（Electron mac 安装包输出改到 `release`，打包输入收敛为运行所需编译产物，避免旧 `.dmg` 和 `.app` 递归进入 `app.asar`）。
 - 已完成：M0.14-R1-hotfix2（Sticky 右键 Codex 菜单点击无反应修复）。
 - 已完成：M0.14-R1（Codex 子页会话与文本块追问第一版）。
 - 已完成：M0.13-R26-hotfix2（等待中暂停/恢复进行中计时）。
@@ -256,6 +261,7 @@
 - 待开始：M1 ~ M4。
 
 ## 已知问题 & 技术债
+- 旧的 `/Users/lmy/proj/Others/todonotes/dist/Notes-0.1.0-arm64.dmg` 和 `/Users/lmy/proj/Others/todonotes/dist/mac-arm64` 仍留在磁盘上，属于历史异常构建产物；确认不需要后可清理，不影响后续新构建。
 - Codex App 指定会话 deep link 的官方格式是 `codex://threads/<sessionId>`，但当前 `codex exec` 创建的非交互式会话实测会在 App 中 loading；第一版默认改用终端 `codex resume --include-non-interactive` 打开。
 - 第一版不做 worktree，多条 AI 任务如果同时指向同一个项目路径，仍可能并发修改同一工作区。
 - 第一版不内嵌完整对话和 diff 展示，完整查看依赖终端 `codex resume --include-non-interactive`。

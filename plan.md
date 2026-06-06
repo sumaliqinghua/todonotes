@@ -1,6 +1,34 @@
 # 项目计划（里程碑驱动）
 
-更新时间：2026-06-04（M0.14-R1-hotfix8 已完成）
+更新时间：2026-06-06（Build-mac-hotfix2 已完成）
+
+## Build-mac-hotfix2：修复 Electron 安装包递归打包导致体积膨胀
+
+### 任务清单
+
+- [x] 执行内容：定位 `.dmg` 体积异常原因
+  - 具体执行步骤：
+    1. 检查 `dist` 目录下 `.dmg`、`.app`、`app.asar` 的体积。
+    2. 读取 `app.asar` 清单，确认是否包含历史 `.dmg`、`.blockmap`、`mac-arm64` 等构建产物。
+    3. 对照 `package.json` 的 electron-builder 配置定位打包入口。
+  - 验收标准：能明确说明体积异常来自递归打包，而不是业务代码或前端资源过大
+
+- [x] 执行内容：调整 electron-builder 打包范围
+  - 具体执行步骤：
+    1. 将 electron-builder 最终输出目录从默认 `dist` 改为 `release`。
+    2. 将 `build.files` 从 `dist/**/*` 改为只包含运行所需的 `dist/main`、`dist/preload`、`dist/renderer`、`dist/shared` 和 `package.json`。
+    3. 保持 `main` 入口为 `dist/main/main.js`，保证打包后 Electron 仍从编译后的主进程文件启动。
+  - 验收标准：新安装包不会再把旧 `.dmg`、`.blockmap` 或 `mac-arm64` 目录放进 `app.asar`
+
+- [x] 执行内容：验证新打包结果并记录
+  - 具体执行步骤：
+    1. 运行 `npm run build` 生成新安装包。
+    2. 检查 `release` 目录下 `.dmg`、`.app`、`app.asar` 的体积。
+    3. 检查新 `app.asar` 清单中不存在历史安装包产物。
+    4. 更新 `PRD.md`、`plan.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：构建成功，体积回落到 Electron 应用的正常范围，文档记录修复原因和后续约定
+
+状态：`[x] 已完成`
 
 ## M0.14-R1-hotfix8：修复 Electron 主进程找不到 Codex CLI
 

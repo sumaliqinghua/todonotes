@@ -1,6 +1,7 @@
 # PRD（需求文档）
 
 ## 变更历史
+- 2026-06-06：修复 mac 安装包体积异常膨胀：electron-builder 最终输出目录从 `dist` 改为 `release`；打包输入从 `dist/**/*` 收敛为 `dist/main`、`dist/preload`、`dist/renderer`、`dist/shared` 和 `package.json`，避免旧 `.dmg`、`.blockmap`、`mac-arm64` 再次进入 `app.asar`。
 - 2026-06-04：修复 Electron 主进程找不到 Codex CLI 的问题：后台执行不再直接 `spawn("codex")`，而是先解析 Codex CLI 绝对路径；查找顺序为 `CODEX_CLI_PATH`、当前 `PATH`、`~/.nvm/versions/node/*/bin/codex`、Homebrew 常见路径和 Codex App 资源路径。
 - 2026-06-02：新增 AI 返回结果的进行中徽标与底部快捷入口：Codex 成功返回后，当前块显示 `进行中.AI已返回结果:xxm`，其中 `xxm` 是距离 AI 返回结果的分钟数；Sticky 底部快捷状态按钮组新增 `AI` 按钮，可直接对当前块执行“用当前块追问 Codex”。
 - 2026-06-02：新增 AI 完成后刷新已打开 Codex 终端：由于 `codex resume` TUI 不会自动感知后台 `codex exec resume` 追加的新 turn，后台 AI 成功完成后会查找同一 `sessionId` 的已打开 Terminal tab，结束旧 TUI 并在同一 tab 重新执行 `codex resume`，让终端显示最新对话；未打开终端时不自动弹出。
