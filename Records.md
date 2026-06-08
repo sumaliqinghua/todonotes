@@ -1,5 +1,70 @@
 # 实现记录（Records）
 
+## [2026-06-08] M0.14-R1-hotfix10 Codex App prompt 收敛与 AI 状态清理
+- **What（做了什么）**：
+  - `src/main/codexRunner.ts`
+    - 新增 `TODO_NOTES_CALLBACK_SKILL`，内容是 `todonotes-callback` Codex skill 的 `SKILL.md`。
+    - 新增 `ensureTodonotesCallbackSkill()`，App 模式发起前会写入 `~/.codex/skills/todonotes-callback/SKILL.md`。
+    - 修改 `buildCodexAppPrompt()`：不再把 `codex-session`、`codex-done`、`codex-failed` 三段完整命令拼进用户问题正文。
+    - 新 prompt 结构改为：
+      - 第一段：用户当前文本块原始问题。
+      - 第二段：一句简短说明，要求使用 `todonotes-callback` skill；如果 skill 未自动加载，则读取 `~/.codex/skills/todonotes-callback/SKILL.md`。
+      - 第三段：`<todonotes_callback>` 元数据块，包含 `cliPath`、`taskId`、`blockId`、`sessionId`。
+  - `~/.codex/skills/todonotes-callback/SKILL.md`
+    - 新增本机 Codex skill 文件。
+    - 该 skill 说明：当 prompt 包含 `todonotes_callback` 块时，Codex 在结束本次任务前执行 todonotes CLI 回调。
+    - `sessionId` 为空时先取得当前 Codex thread ID，再执行 `codex-session`。
+    - 成功时执行 `codex-done`；失败或阻塞时执行 `codex-failed`。
+  - `src/shared/blockStatus.ts`
+    - 新增 `clearCodexStatusAttrsInBlocks()`：扫描 Tiptap blocks，只清理 AI 专用状态。
+    - AI 专用状态定义为：
+      - `waiting + waitReason=AI处理中`
+      - `doing + waitReason=AI已返回结果`
+      - `waiting + waitReason=失败`
+    - 新增 `isCodexProcessingBlock()`：判断某个文本块当前是否仍然是 `waiting + AI处理中`。
+  - `src/renderer/App.tsx`
+    - 发起新的“用当前块追问 Codex”前，先调用 `clearCodexStatusAttrsInBlocks(input.blocks, input.blockId)`。
+    - 清理完成后，再把当前目标块写成 `waiting + AI处理中`。
+  - `src/main/codexCallbackServer.ts`
+    - `codex-done` / `codex-failed` 回调更新状态前，先检查目标块是否仍处于 `AI处理中`。
+    - 如果目标块已经不是 `AI处理中`，说明用户可能已经开启下一条文本块 AI；此时只保存传入的 `sessionId`，不再把旧块改成 `AI已返回结果` 或 `失败`。
+    - `showAiNotification()` 增加通知对象引用保活，并在 macOS 上调用 `app.focus({ steal: false })`，提高回调成功后系统通知出现的稳定性。
+  - `src/renderer/utils/__tests__/blockStatus.test.ts`
+    - 新增测试：清理旧 AI 状态时会清掉 `AI处理中` 和 `AI已返回结果`，保留人工等待原因。
+    - 新增测试：只有仍处于 `AI处理中` 的块才允许回调更新状态。
+- **Why（为什么这么做）**：
+  - 用户反馈 App 模式 prompt 里混着用户问题和大段命令，阅读上很容易把“实际问题”和“回调说明”混在一起。
+  - 用户还反馈回调后 todonotes 只更新了条目状态，没有弹出通知；因此需要增强 Electron 通知对象生命周期和触发可见性。
+  - 用户希望开启下一条文本块 AI 时，本页面先前的 AI 状态清除。这里的目标是降低状态工作台噪音：同一页只让“当前正在交给 AI 的块”占据 AI 状态。
+- **How（怎么实现的）**：
+  - 新 App 模式 prompt 流：
+    - 用户右键文本块选择“用当前块追问 Codex”
+    - todonotes 写入 `~/.codex/skills/todonotes-callback/SKILL.md`
+    - todonotes 把当前页旧 AI 状态清掉
+    - todonotes 把当前块设为 `waiting + AI处理中`
+    - todonotes 打开 Codex App，并复制短 prompt
+    - Codex App 中看到的是“用户问题 + todonotes_callback 元数据块”
+    - Codex 对话结束前按 skill 执行 `codex-done` 或 `codex-failed`
+  - 状态清理流：
+    - `clearCodexStatusAttrsInBlocks()` 递归扫描当前页 blocks
+    - 如果块状态是 AI 专用状态且不是当前新发起块，就把 `workStatus`、`workStatusUpdatedAt`、`plannedStartAt`、`plannedDurationMinutes`、`waitReason`、`waitReviewAt` 清空
+    - 如果块是人工等待，例如 `waitReason=客户确认`，保持不变
+  - 旧回调防复活流：
+    - 旧 AI 任务完成后执行 `codex-done`
+    - 回调服务读取当前任务 blocks
+    - `isCodexProcessingBlock()` 判断目标块是否仍是 `waiting + AI处理中`
+    - 如果不是，说明旧 AI 状态已被新 AI 发起动作清掉；回调只保存 `sessionId`，不改块状态，不发“AI 已返回结果”通知
+- **用户须知**：
+  - App 模式发到 Codex 的文本会明显变短，用户问题不会再被大段命令淹没。
+  - 新增 skill 文件位于 `~/.codex/skills/todonotes-callback/SKILL.md`，它是本机 Codex App 使用的技能说明。
+  - 同一页面发起新的 AI 块后，旧 AI 状态会从正文和工作台里清掉；人工设置的等待中、进行中、待开始、已完成不受影响。
+  - 如果旧 AI 任务晚返回，它不会重新把旧块标成 AI 已返回；这是为了保持“本页当前只关注一个 AI 块”的规则。
+- **已知限制**：
+  - Codex App 是否立即识别新 skill 取决于 Codex App 的 skill 加载时机；prompt 中已提供读取 `~/.codex/skills/todonotes-callback/SKILL.md` 的兜底说明。
+  - macOS 系统通知还受系统通知权限和专注模式影响；本轮已增加 Electron 侧保活，但无法绕过系统级禁用。
+- **关联假设**：
+  - 沿用 `[2026-06-08/M0.14-R1-hotfix9] Codex App 模式通过 prompt 内 CLI 回调绑定会话`，但把“prompt 内命令”收敛为“prompt 内元数据 + skill 执行命令”。
+
 ## [2026-06-06] Build-mac-hotfix2 修复 Electron 安装包递归打包导致体积膨胀
 - **What（做了什么）**：
   - 修改 [package.json](/Users/lmy/proj/Others/todonotes/package.json)：

@@ -97,6 +97,36 @@ postCallback({
 });
 `;
 
+const TODO_NOTES_CALLBACK_SKILL = `---
+name: todonotes-callback
+description: 当用户提示词包含 todonotes_callback 上下文块时使用；在本次 Codex 任务结束前，执行 todonotes 本地 CLI 回调命令，把源文本块状态更新回正在运行的 todonotes 桌面应用。
+---
+
+# todonotes 回调
+
+当用户提示词包含 \`todonotes_callback\` 块时，把它视为 todonotes 桌面应用传入的任务元数据。
+
+## 必须执行
+
+1. 正常完成用户提出的实际任务。
+2. 在结束本次回复前，读取 \`todonotes_callback\` 块。
+3. 如果 \`sessionId\` 为空，先运行 \`/status\` 或用其他方式取得当前 Codex thread ID，然后执行：
+   \`node <cliPath> codex-session --task <taskId> --session <threadId>\`
+4. 如果任务成功完成，执行：
+   \`node <cliPath> codex-done --task <taskId> --block <blockId> --session <threadId>\`
+5. 如果任务失败或被阻塞，执行：
+   \`node <cliPath> codex-failed --task <taskId> --block <blockId> --reason "失败"\`
+
+## 字段说明
+
+- \`cliPath\` 是 todonotes 本地 CLI 桥接脚本的绝对路径。
+- \`taskId\` 是 todonotes 子页 ID。
+- \`blockId\` 是发起本次 AI 的文本块 ID。
+- \`sessionId\` 是已保存的 Codex thread ID；如果它存在，就把它作为 \`<threadId>\`。
+- CLI 会请求 \`127.0.0.1:17373\`，所以 todonotes 必须保持运行。
+- 除非回调失败且需要用户手动重试，否则不要把这些回调命令写进面向用户的最终回答。
+`;
+
 function parseCodexJsonLine(line: string, current: CodexRunResult): CodexRunResult {
   try {
     const event = JSON.parse(line) as {
@@ -218,30 +248,20 @@ export function runCodexBlockPrompt(input: { sessionId?: string | null; cwd: str
 }
 
 function buildCodexAppPrompt(input: { taskId: string; blockId: string; prompt: string; sessionId?: string | null }) {
-  const sessionArg = input.sessionId ? ` --session ${shellQuote(input.sessionId)}` : " --session <请用 /status 看到的 thread ID 替换这里>";
   const cliPath = ensureTodonotesCliBridge();
-  const sessionCommand = `node ${shellQuote(cliPath)} codex-session --task ${shellQuote(input.taskId)} --session <请用 /status 看到的 thread ID 替换这里>`;
-  const doneCommand = `node ${shellQuote(cliPath)} codex-done --task ${shellQuote(input.taskId)} --block ${shellQuote(input.blockId)}${sessionArg}`;
-  const failedCommand = `node ${shellQuote(cliPath)} codex-failed --task ${shellQuote(input.taskId)} --block ${shellQuote(input.blockId)} --reason ${shellQuote("失败")}`;
-  const lines = [
+  ensureTodonotesCallbackSkill();
+  return [
     input.prompt,
     "",
-    "完成本次任务后，请在终端运行下面的命令通知 todonotes 更新对应文本块状态：",
-    doneCommand,
+    "请在本次对话结束前使用 todonotes-callback skill，把处理结果回写到 todonotes；如果 skill 未自动加载，请读取 ~/.codex/skills/todonotes-callback/SKILL.md。",
     "",
-    "如果本次任务失败，请运行：",
-    failedCommand
-  ];
-  if (!input.sessionId) {
-    lines.push(
-      "",
-      "首次发起本页会话时，请先在 Codex App 输入 /status，复制 thread ID 后运行下面的命令，把本页绑定到这个 Codex 会话：",
-      sessionCommand,
-      "",
-      "说明：上面的完成命令也包含 session 占位文本；如果你没有先运行绑定命令，请在完成命令里同样替换这个 thread ID。"
-    );
-  }
-  return lines.join("\n");
+    "<todonotes_callback>",
+    `cliPath: ${cliPath}`,
+    `taskId: ${input.taskId}`,
+    `blockId: ${input.blockId}`,
+    `sessionId: ${input.sessionId ?? ""}`,
+    "</todonotes_callback>"
+  ].join("\n");
 }
 
 export async function startCodexAppPrompt(input: { taskId: string; blockId: string; sessionId?: string | null; cwd: string; prompt: string }) {
@@ -269,6 +289,16 @@ function ensureTodonotesCliBridge() {
     return path.join(app.getAppPath(), "scripts", "todonotes-cli.cjs");
   }
   return bridgePath;
+}
+
+function ensureTodonotesCallbackSkill() {
+  const skillPath = path.join(os.homedir(), ".codex", "skills", "todonotes-callback", "SKILL.md");
+  try {
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.writeFileSync(skillPath, TODO_NOTES_CALLBACK_SKILL);
+  } catch {
+    // skill 写入失败时仍可发起 Codex App 会话，只是回调说明会退化为普通 prompt 文本。
+  }
 }
 
 interface RunningCodexResume {

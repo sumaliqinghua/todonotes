@@ -1,6 +1,40 @@
 # 项目计划（里程碑驱动）
 
-更新时间：2026-06-08（M0.14-R1-hotfix9 已完成）
+更新时间：2026-06-08（M0.14-R1-hotfix10 已完成）
+
+## M0.14-R1-hotfix10：Codex App prompt 收敛与 AI 状态清理
+
+### 任务清单
+
+- [x] 执行内容：将 App 模式回调命令收敛为 Codex skill
+  - 具体执行步骤：
+    1. 生成 `~/.codex/skills/todonotes-callback/SKILL.md`。
+    2. App 模式发起前确保该 skill 存在。
+    3. prompt 中移除完整 CLI 命令，只保留原始问题、skill 提示和 `todonotes_callback` 元数据块。
+  - 验收标准：Codex App 中用户问题不再和大段命令混在一起；对话结束前由 skill 执行回调
+
+- [x] 执行内容：开启新 AI 时清理本页旧 AI 状态
+  - 具体执行步骤：
+    1. 新增 `clearCodexStatusAttrsInBlocks()` 清理 AI 专用状态。
+    2. 发起新文本块 AI 前清除本页旧的 `AI处理中`、`AI已返回结果`、`失败`。
+    3. 保留人工设置的等待原因，例如 `客户确认`。
+  - 验收标准：同一页面只有当前发起的文本块保留 AI 状态，历史 AI 状态不继续占用工作台注意力
+
+- [x] 执行内容：避免旧 AI 回调复活旧状态并增强通知
+  - 具体执行步骤：
+    1. 新增 `isCodexProcessingBlock()` 判断目标块是否仍处于 `waiting + AI处理中`。
+    2. `codex-done` / `codex-failed` 只在目标块仍处理中时更新文本块状态；否则只保存 `sessionId`。
+    3. Codex 回调通知增加 Electron 通知引用保活和 macOS 轻量 focus。
+  - 验收标准：旧 AI 任务晚返回不会把旧块重新标成 AI 已返回；回调成功后系统通知更稳定
+
+- [x] 执行内容：验证并记录
+  - 具体执行步骤：
+    1. 运行 main、preload、renderer 三端 TypeScript 编译检查。
+    2. 运行 `npm test`。
+    3. 更新 `PRD.md`、`plan.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：编译检查和测试通过，文档记录 prompt、skill、状态清理和通知行为
+
+状态：`[x] 已完成`
 
 ## M0.14-R1-hotfix9：Codex App 模式与 CLI 回调
 

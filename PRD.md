@@ -1,6 +1,7 @@
 # PRD（需求文档）
 
 ## 变更历史
+- 2026-06-08：优化 Codex App 模式 prompt 与 AI 状态切换：App 模式不再把完整 `codex-session` / `codex-done` / `codex-failed` 命令直接拼进用户问题正文，而是生成 `todonotes-callback` Codex skill，并在 prompt 末尾只附加短小的 `todonotes_callback` 元数据块；Codex 对话结束前由该 skill 执行本地 CLI 回调。发起新的文本块 AI 时会清理本页旧的 AI 专用状态（`AI处理中`、`AI已返回结果`、`失败`），但保留人工等待原因；旧 AI 回调如果目标块已不再处于 `AI处理中`，不会重新把旧块标为 AI 已返回。
 - 2026-06-08：新增 Codex 双模式与 CLI 回调：Library 标题栏可在 `Terminal` 与 `Codex App` 模式之间切换；Terminal 模式保留现有 `codex exec` / `codex resume` 流程；Codex App 模式通过 `codex://threads/new?path=<项目路径>&prompt=<提示词>` 或 `codex://threads/<sessionId>` 打开 Codex App，并把带 todonotes CLI 回调命令的 prompt 写入剪贴板；Codex 可运行 `codex-session` 写回当前子页 `sessionId`，运行 `codex-done` / `codex-failed` 更新对应文本块状态。
 - 2026-06-06：修复 mac 安装包体积异常膨胀：electron-builder 最终输出目录从 `dist` 改为 `release`；打包输入从 `dist/**/*` 收敛为 `dist/main`、`dist/preload`、`dist/renderer`、`dist/shared` 和 `package.json`，避免旧 `.dmg`、`.blockmap`、`mac-arm64` 再次进入 `app.asar`。
 - 2026-06-04：修复 Electron 主进程找不到 Codex CLI 的问题：后台执行不再直接 `spawn("codex")`，而是先解析 Codex CLI 绝对路径；查找顺序为 `CODEX_CLI_PATH`、当前 `PATH`、`~/.nvm/versions/node/*/bin/codex`、Homebrew 常见路径和 Codex App 资源路径。

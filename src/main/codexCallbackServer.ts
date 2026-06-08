@@ -1,11 +1,12 @@
 import http from "http";
-import { Notification } from "electron";
+import { app, Notification } from "electron";
 import { TODO_NOTES_CALLBACK_PORT } from "./codexRunner";
 import { updateTask, getTaskById } from "./db/tasksRepo";
-import { updateBlockStatusInBlocks } from "../shared/blockStatus";
+import { isCodexProcessingBlock, updateBlockStatusInBlocks } from "../shared/blockStatus";
 import { broadcast } from "./ipc/events";
 
 let server: http.Server | null = null;
+const activeNotifications = new Set<Notification>();
 
 function sendJson(res: http.ServerResponse, statusCode: number, payload: unknown) {
   res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
@@ -31,13 +32,33 @@ function showAiNotification(title: string, body: string) {
   if (!Notification.isSupported()) {
     return;
   }
-  new Notification({ title, body }).show();
+  if (process.platform === "darwin") {
+    app.focus({ steal: false });
+  }
+  const notification = new Notification({ title, body, silent: false });
+  activeNotifications.add(notification);
+  const release = () => {
+    activeNotifications.delete(notification);
+  };
+  notification.once("show", () => {
+    setTimeout(release, 5000);
+  });
+  notification.once("failed", release);
+  notification.show();
 }
 
 function updateCodexBlock(input: { taskId: string; blockId: string; sessionId?: string | null; status: "doing" | "waiting"; reason: string }) {
   const task = getTaskById(input.taskId);
   if (!task) {
     throw new Error("任务不存在");
+  }
+  if (!isCodexProcessingBlock(task.blocks, input.blockId)) {
+    const nextTask = updateTask({
+      id: task.id,
+      codexSessionId: input.sessionId?.trim() || task.codexSessionId
+    });
+    broadcast("task:updated", { taskId: nextTask.id });
+    return { task: nextTask, statusChanged: false };
   }
   const updated = updateBlockStatusInBlocks(task.blocks, input.blockId, {
     workStatus: input.status,
@@ -53,7 +74,7 @@ function updateCodexBlock(input: { taskId: string; blockId: string; sessionId?: 
     codexSessionId: input.sessionId?.trim() || task.codexSessionId
   });
   broadcast("task:updated", { taskId: nextTask.id });
-  return nextTask;
+  return { task: nextTask, statusChanged: true };
 }
 
 async function handleCodexCallback(req: http.IncomingMessage, res: http.ServerResponse) {
@@ -85,26 +106,30 @@ async function handleCodexCallback(req: http.IncomingMessage, res: http.ServerRe
       throw new Error("缺少 taskId 或 blockId");
     }
     if (payload.event === "done") {
-      const task = updateCodexBlock({
+      const result = updateCodexBlock({
         taskId: payload.taskId,
         blockId: payload.blockId,
         sessionId: payload.sessionId,
         status: "doing",
         reason: "AI已返回结果"
       });
-      showAiNotification("AI 已返回结果", task.title);
+      if (result.statusChanged) {
+        showAiNotification("AI 已返回结果", result.task.title);
+      }
       sendJson(res, 200, { ok: true });
       return;
     }
     if (payload.event === "failed") {
-      const task = updateCodexBlock({
+      const result = updateCodexBlock({
         taskId: payload.taskId,
         blockId: payload.blockId,
         sessionId: payload.sessionId,
         status: "waiting",
         reason: payload.reason?.trim() || "失败"
       });
-      showAiNotification("AI 处理失败", task.title);
+      if (result.statusChanged) {
+        showAiNotification("AI 处理失败", result.task.title);
+      }
       sendJson(res, 200, { ok: true });
       return;
     }

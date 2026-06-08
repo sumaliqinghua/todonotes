@@ -3,6 +3,7 @@ import type { JsonValue, StatusBlock, WorkStatus } from "./types";
 const STATUS_BLOCK_TYPES = new Set(["paragraph", "heading", "listItem", "taskItem"]);
 const WORK_STATUS_VALUES = new Set<WorkStatus>(["todo", "doing", "waiting", "done"]);
 const STATUS_ATTR_KEYS = ["workStatus", "workStatusUpdatedAt", "plannedStartAt", "plannedDurationMinutes", "waitReason", "waitReviewAt"] as const;
+const CODEX_STATUS_REASONS = new Set(["AI处理中", "AI已返回结果", "失败"]);
 
 interface JsonRecord {
   [key: string]: JsonValue;
@@ -23,6 +24,12 @@ function clearStatusAttrs(attrs: JsonRecord): JsonRecord {
     nextAttrs[key] = null;
   });
   return nextAttrs;
+}
+
+function isCodexStatusAttrs(attrs: JsonRecord): boolean {
+  const workStatus = parseWorkStatus(attrs.workStatus);
+  const waitReason = typeof attrs.waitReason === "string" ? attrs.waitReason.trim() : "";
+  return (workStatus === "waiting" || workStatus === "doing") && CODEX_STATUS_REASONS.has(waitReason);
 }
 
 function isRecord(value: JsonValue): value is JsonRecord {
@@ -415,4 +422,79 @@ export function updateBlockStatusInBlocks(
     blocks: updated.value,
     changed: updated.changed
   };
+}
+
+export function clearCodexStatusAttrsInBlocks(blocks: JsonValue, exceptBlockId?: string): { blocks: JsonValue; changed: boolean } {
+  const visit = (value: JsonValue): { value: JsonValue; changed: boolean } => {
+    if (Array.isArray(value)) {
+      let changed = false;
+      const nextArray = value.map((item) => {
+        const updated = visit(item);
+        if (updated.changed) {
+          changed = true;
+        }
+        return updated.value;
+      });
+      return changed ? { value: nextArray, changed: true } : { value, changed: false };
+    }
+    if (!isRecord(value)) {
+      return { value, changed: false };
+    }
+
+    let changed = false;
+    let nextRecord: JsonRecord = value;
+    const attrs = isRecord(value.attrs) ? value.attrs : null;
+    const nodeId = typeof attrs?.id === "string" ? attrs.id : "";
+    if (attrs && nodeId !== exceptBlockId && isCodexStatusAttrs(attrs)) {
+      nextRecord = {
+        ...nextRecord,
+        attrs: clearStatusAttrs(attrs)
+      };
+      changed = true;
+    }
+
+    if (Array.isArray(nextRecord.content)) {
+      const nextContent = nextRecord.content.map((item) => {
+        const updated = visit(item);
+        if (updated.changed) {
+          changed = true;
+        }
+        return updated.value;
+      });
+      if (changed) {
+        nextRecord = {
+          ...nextRecord,
+          content: nextContent
+        };
+      }
+    }
+
+    return changed ? { value: nextRecord, changed: true } : { value, changed: false };
+  };
+
+  const updated = visit(blocks);
+  return {
+    blocks: updated.value,
+    changed: updated.changed
+  };
+}
+
+export function isCodexProcessingBlock(blocks: JsonValue, blockId: string): boolean {
+  const visit = (value: JsonValue): boolean => {
+    if (Array.isArray(value)) {
+      return value.some(visit);
+    }
+    if (!isRecord(value)) {
+      return false;
+    }
+    const attrs = isRecord(value.attrs) ? value.attrs : null;
+    if (attrs?.id === blockId && isStatusBlockType(nodeType(value))) {
+      const workStatus = parseWorkStatus(attrs.workStatus);
+      const waitReason = typeof attrs.waitReason === "string" ? attrs.waitReason.trim() : "";
+      return workStatus === "waiting" && waitReason === "AI处理中";
+    }
+    return Array.isArray(value.content) ? value.content.some(visit) : false;
+  };
+
+  return visit(blocks);
 }

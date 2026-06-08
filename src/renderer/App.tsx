@@ -9,7 +9,7 @@ import TitleBar from "./components/TitleBar";
 import PromptModal from "./components/PromptModal";
 import { useAppStore, type LibraryTab } from "./store/useAppStore";
 import { appendTaskLinkToBlocksEnd, hasTaskLinkByTaskId, removeTaskLinksByTaskId } from "../shared/taskBlocksSync";
-import { updateBlockStatusInBlocks } from "../shared/blockStatus";
+import { clearCodexStatusAttrsInBlocks, updateBlockStatusInBlocks } from "../shared/blockStatus";
 
 interface Props {
   windowId: string;
@@ -358,7 +358,8 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       alert("未配置项目路径，已取消发送");
       return;
     }
-    const waitingBlocks = updateBlockStatusInBlocks(input.blocks, input.blockId, {
+    const clearedBlocks = clearCodexStatusAttrsInBlocks(input.blocks, input.blockId);
+    const waitingBlocks = updateBlockStatusInBlocks(clearedBlocks.blocks, input.blockId, {
       workStatus: "waiting",
       workStatusUpdatedAt: Date.now(),
       plannedStartAt: null,

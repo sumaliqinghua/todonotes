@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { JsonValue, StatusBlock } from "../../../shared/types";
 import {
+  clearCodexStatusAttrsInBlocks,
   collectStatusBlocksFromTask,
   compareStatusBlocks,
   computeRemainingStatusDurationMinutes,
   formatStatusBadge,
   formatStatusOverrun,
   getPlannedEndAt,
+  isCodexProcessingBlock,
   updateBlockStatusInBlocks
 } from "../../../shared/blockStatus";
 
@@ -310,5 +312,64 @@ describe("blockStatus", () => {
       waitReason: null,
       waitReviewAt: null
     });
+  });
+
+  it("清理旧 AI 状态时只清除 Codex 专用状态并保留当前块和人工等待", () => {
+    const blocks: JsonValue = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { id: "old-processing", workStatus: "waiting", waitReason: "AI处理中" },
+          content: [{ type: "text", text: "旧 AI 处理中" }]
+        },
+        {
+          type: "paragraph",
+          attrs: { id: "old-done", workStatus: "doing", waitReason: "AI已返回结果" },
+          content: [{ type: "text", text: "旧 AI 返回" }]
+        },
+        {
+          type: "paragraph",
+          attrs: { id: "manual-waiting", workStatus: "waiting", waitReason: "客户确认" },
+          content: [{ type: "text", text: "人工等待" }]
+        },
+        {
+          type: "paragraph",
+          attrs: { id: "current", workStatus: "waiting", waitReason: "AI处理中" },
+          content: [{ type: "text", text: "当前 AI" }]
+        }
+      ]
+    };
+
+    const result = clearCodexStatusAttrsInBlocks(blocks, "current");
+    const [oldProcessing, oldDone, manualWaiting, current] = (result.blocks as any).content;
+
+    expect(result.changed).toBe(true);
+    expect(oldProcessing.attrs.workStatus).toBeNull();
+    expect(oldDone.attrs.workStatus).toBeNull();
+    expect(manualWaiting.attrs).toMatchObject({ workStatus: "waiting", waitReason: "客户确认" });
+    expect(current.attrs).toMatchObject({ workStatus: "waiting", waitReason: "AI处理中" });
+  });
+
+  it("只有仍处于 AI 处理中的块才允许回调更新状态", () => {
+    const blocks: JsonValue = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { id: "processing", workStatus: "waiting", waitReason: "AI处理中" },
+          content: [{ type: "text", text: "正在处理" }]
+        },
+        {
+          type: "paragraph",
+          attrs: { id: "cleared", workStatus: null, waitReason: null },
+          content: [{ type: "text", text: "已清理旧 AI 状态" }]
+        }
+      ]
+    };
+
+    expect(isCodexProcessingBlock(blocks, "processing")).toBe(true);
+    expect(isCodexProcessingBlock(blocks, "cleared")).toBe(false);
+    expect(isCodexProcessingBlock(blocks, "missing")).toBe(false);
   });
 });
