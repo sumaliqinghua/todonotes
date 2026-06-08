@@ -1,5 +1,21 @@
 # 假设记录（ASSUMPTIONS）
 
+## [2026-06-08/M0.14-R1-hotfix9] Codex App 模式通过 prompt 内 CLI 回调绑定会话
+
+- **背景**：用户希望在 Codex App 中查看完整对话，同时首次发起会话后能把 Codex App 当前 thread ID 写回 todonotes 的当前子页。Codex deep link 可以打开新线程或已有线程，但没有提供“打开后把新 thread ID 自动回传给调用方”的返回通道。
+- **假设**：第一版不尝试从 Codex App 内部自动抓取新 thread ID，而是在 prompt 中追加 todonotes CLI 命令，让 Codex 或用户在 Codex App 会话里执行 `/status` 后，把 thread ID 填入 `codex-session --task <taskId> --session <sessionId>`，再由本地回调服务写回 `tasks.codex_session_id`。
+- **理由**：这个方案只依赖官方 deep link、本机 CLI 和本地 HTTP 回调，不需要控制 Codex App 内部 UI，也不需要终端作为主要查看界面；失败时也容易肉眼定位，是第一版最稳的桥接方式。
+- **影响范围**：首次 App 模式会话需要一次人工或 Codex 执行的 `codex-session` 回调；如果未来 Codex App deep link 支持返回新 thread ID，可以去掉这一步。
+- **状态**：待确认
+
+## [2026-06-08/M0.14-R1-hotfix9] todonotes CLI 回调只在应用运行时生效
+
+- **背景**：`codex-done`、`codex-failed` 和 `codex-session` 都需要更新 todonotes 本地数据库中的任务和文本块状态。
+- **假设**：第一版让 CLI 命令 POST 到运行中的 todonotes 本地服务 `127.0.0.1:17373/codex/callback`；如果 todonotes 已关闭，CLI 命令失败，不做离线队列。
+- **理由**：用户当前目标是降低并行 AI 任务的心智压力，而不是构建后台守护进程；本地回调服务最小、直观、可调试，也避免引入数据库路径探测和跨进程写库风险。
+- **影响范围**：执行回调命令前需要保持 todonotes 打开；如果关闭应用后 Codex 才完成，需要重新打开 todonotes 并再次执行回调命令。
+- **状态**：待确认
+
 ## [2026-06-02/M0.14-R1-hotfix3] Codex exec 非交互会话优先用终端 resume 打开
 
 - **背景**：用户实测点击“打开本页 Codex 对话”后，Codex App 会被唤起，但没有切换到目标会话，而是一直显示 loading。当前子页会话来源是 `codex exec --json` 输出的 `thread_id`。

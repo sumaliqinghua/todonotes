@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Reminder, Task } from "../../shared/types";
+import type { CodexMode, Reminder, Task } from "../../shared/types";
 import type { TaskTreeNode } from "../components/LibraryPanel";
 
 export type LibraryTab = "inProgress" | "completed" | "deleted" | "archived";
@@ -20,6 +20,7 @@ interface AppState {
   searchQuery: string;
   reminders: Reminder[];
   windowSettings: WindowSettings;
+  codexMode: CodexMode;
   libraryTab: LibraryTab;
   setNavPath: (path: string[]) => void;
   setCurrentTask: (task: Task | null) => void;
@@ -30,6 +31,7 @@ interface AppState {
   setReminders: (reminders: Reminder[]) => void;
   setLibraryTab: (tab: LibraryTab) => void;
   updateWindowSettings: (next: Partial<WindowSettings>) => void;
+  setCodexMode: (mode: CodexMode) => void;
   reset: () => void;
 }
 
@@ -47,6 +49,7 @@ const initialState = {
     stickyColor: "#f6e8a6",
     stickyOpacity: 1
   },
+  codexMode: "terminal" as CodexMode,
   libraryTab: "inProgress" as LibraryTab
 };
 
@@ -60,6 +63,7 @@ export const useAppStore = create<AppState>((set) => ({
   setSearchQuery: (query) => set({ searchQuery: query }),
   setReminders: (reminders) => set({ reminders }),
   setLibraryTab: (tab) => set({ libraryTab: tab }),
+  setCodexMode: (mode) => set({ codexMode: mode }),
   updateWindowSettings: (next) =>
     set((state) => ({
       windowSettings: {

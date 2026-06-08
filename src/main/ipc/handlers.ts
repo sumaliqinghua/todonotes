@@ -16,7 +16,8 @@ import {
   getPriorityBlocks,
   listStatusBlocksByRootTaskId
 } from "../db/tasksRepo";
-import { runCodexBlockPrompt, openCodexSession, refreshOpenCodexSession } from "../codexRunner";
+import { runCodexBlockPrompt, openCodexSession, refreshOpenCodexSession, startCodexAppPrompt } from "../codexRunner";
+import { getCodexMode, setCodexMode } from "../db/settingsRepo";
 import { createEdge, deleteEdge, deleteEdgesByChildId } from "../db/edgesRepo";
 import { createReminder, deleteReminder, listDueReminders, listRemindersByTask, markReminderDone } from "../db/remindersRepo";
 import { addAttachment, getAttachment, listAttachments } from "../db/attachmentsRepo";
@@ -271,6 +272,23 @@ export function registerIpcHandlers() {
       updateTask({ id: task.id, codexCwd: cwd });
     }
 
+    const codexMode = getCodexMode();
+    if (codexMode === "app") {
+      const result = await startCodexAppPrompt({
+        taskId: task.id,
+        blockId: input.blockId,
+        sessionId: task.codexSessionId,
+        cwd,
+        prompt: input.prompt
+      });
+      return {
+        sessionId: result.sessionId,
+        finalMessage: "",
+        mode: "app",
+        message: result.message
+      };
+    }
+
     try {
       const result = await runCodexBlockPrompt({
         sessionId: task.codexSessionId,
@@ -305,11 +323,23 @@ export function registerIpcHandlers() {
       return { opened: false, method: "none" as const, message: "当前子页还没有 Codex 会话" };
     }
     try {
+      if (getCodexMode() === "app") {
+        await shell.openExternal(`codex://threads/${encodeURIComponent(sessionId)}`);
+        return { opened: true, method: "app" as const };
+      }
       return await openCodexSession(sessionId, task.codexCwd);
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : "打开 Codex 会话失败";
       return { opened: false, method: "none" as const, message };
     }
+  });
+
+  ipcMain.handle("codex:getMode", () => {
+    return { mode: getCodexMode() };
+  });
+
+  ipcMain.handle("codex:setMode", (_event, input: Parameters<IpcInvokeMap["codex:setMode"]>[0]) => {
+    return { mode: setCodexMode(input.mode) };
   });
 
   ipcMain.handle("task:createFromBlock", (_event, input: Parameters<IpcInvokeMap["task:createFromBlock"]>[0]) => {

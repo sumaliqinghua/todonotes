@@ -1,6 +1,46 @@
 # 项目计划（里程碑驱动）
 
-更新时间：2026-06-06（Build-mac-hotfix2 已完成）
+更新时间：2026-06-08（M0.14-R1-hotfix9 已完成）
+
+## M0.14-R1-hotfix9：Codex App 模式与 CLI 回调
+
+### 任务清单
+
+- [x] 执行内容：新增 Codex 模式设置
+  - 具体执行步骤：
+    1. 新增 `app_settings` 表保存全局设置。
+    2. 新增 `CodexMode`，取值为 `terminal` 或 `app`。
+    3. 新增 `codex:getMode` 与 `codex:setMode` IPC。
+    4. Library 顶部标题栏新增模式切换按钮。
+  - 验收标准：用户可以在 Library 窗口切换 Terminal / Codex App 两种模式，默认仍为 Terminal
+
+- [x] 执行内容：Codex App 模式发起追问
+  - 具体执行步骤：
+    1. App 模式下不执行后台 `codex exec`。
+    2. 当前块先标记为 `waiting + AI处理中`。
+    3. 如果没有会话 ID，打开 `codex://threads/new?path=<项目路径>&prompt=<prompt>`。
+    4. 如果已有会话 ID，打开 `codex://threads/<sessionId>`。
+    5. 将带 todonotes CLI 回调命令的 prompt 写入剪贴板。
+  - 验收标准：用户切到 Codex App 后可直接粘贴 prompt；prompt 中包含完成/失败回调命令
+
+- [x] 执行内容：新增 todonotes CLI 回调
+  - 具体执行步骤：
+    1. 新增 `scripts/todonotes-cli.cjs`。
+    2. 支持 `codex-session --task <taskId> --session <sessionId>`，用于首次把 Codex App thread ID 写回当前子页。
+    3. 支持 `codex-done --task <taskId> --block <blockId> --session <sessionId>`。
+    4. 支持 `codex-failed --task <taskId> --block <blockId> --reason <reason>`。
+    5. 新增本地 HTTP 回调服务，仅监听 `127.0.0.1:17373`。
+    6. CLI 调用本地 HTTP 服务，运行中的 todonotes 更新块状态、保存 `codexSessionId` 并发系统通知。
+  - 验收标准：Codex App 首次会话可运行 CLI 命令写回 `sessionId`；完成后运行 CLI 命令可以让对应文本块变为 `进行中.AI已返回结果:0m`
+
+- [x] 执行内容：验证并记录
+  - 具体执行步骤：
+    1. 运行 main、preload、renderer 三端 TypeScript 编译检查。
+    2. 运行 `npm test`。
+    3. 更新 `PRD.md`、`plan.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：编译检查和测试通过，文档记录两种模式、CLI 命令和限制
+
+状态：`[x] 已完成`
 
 ## Build-mac-hotfix2：修复 Electron 安装包递归打包导致体积膨胀
 

@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { app, clipboard, shell } from "electron";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -7,6 +8,94 @@ interface CodexRunResult {
   sessionId: string | null;
   finalMessage: string;
 }
+
+export const TODO_NOTES_CALLBACK_PORT = 17373;
+
+const TODO_NOTES_CLI_BRIDGE = `#!/usr/bin/env node
+
+const http = require("node:http");
+
+const PORT = 17373;
+
+function parseArgs(argv) {
+  const [command, ...rest] = argv;
+  const options = { command };
+  for (let index = 0; index < rest.length; index += 1) {
+    const item = rest[index];
+    if (!item.startsWith("--")) {
+      continue;
+    }
+    const key = item.slice(2);
+    const value = rest[index + 1];
+    options[key] = value;
+    index += 1;
+  }
+  return options;
+}
+
+function postCallback(payload) {
+  const body = JSON.stringify(payload);
+  const req = http.request(
+    {
+      hostname: "127.0.0.1",
+      port: PORT,
+      path: "/codex/callback",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(body)
+      }
+    },
+    (res) => {
+      let response = "";
+      res.on("data", (chunk) => {
+        response += chunk.toString("utf8");
+      });
+      res.on("end", () => {
+        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+          console.log("todonotes callback ok");
+          return;
+        }
+        console.error(response || \`todonotes callback failed: \${res.statusCode}\`);
+        process.exit(1);
+      });
+    }
+  );
+  req.on("error", (error) => {
+    console.error(\`todonotes callback failed: \${error.message}\`);
+    process.exit(1);
+  });
+  req.write(body);
+  req.end();
+}
+
+const args = parseArgs(process.argv.slice(2));
+const allowedCommands = ["codex-done", "codex-failed", "codex-session"];
+if (!args.command || !allowedCommands.includes(args.command)) {
+  console.error("Usage: todonotes-cli codex-done|codex-failed|codex-session --task <taskId> [--block <blockId>] [--session <sessionId>] [--reason <reason>]");
+  process.exit(1);
+}
+if (!args.task) {
+  console.error("Missing required --task");
+  process.exit(1);
+}
+if (args.command !== "codex-session" && !args.block) {
+  console.error("Missing required --block");
+  process.exit(1);
+}
+if (args.command === "codex-session" && !args.session) {
+  console.error("Missing required --session");
+  process.exit(1);
+}
+
+postCallback({
+  event: args.command === "codex-done" ? "done" : args.command === "codex-failed" ? "failed" : "session",
+  taskId: args.task,
+  blockId: args.block,
+  sessionId: args.session,
+  reason: args.reason
+});
+`;
 
 function parseCodexJsonLine(line: string, current: CodexRunResult): CodexRunResult {
   try {
@@ -128,8 +217,58 @@ export function runCodexBlockPrompt(input: { sessionId?: string | null; cwd: str
   });
 }
 
+function buildCodexAppPrompt(input: { taskId: string; blockId: string; prompt: string; sessionId?: string | null }) {
+  const sessionArg = input.sessionId ? ` --session ${shellQuote(input.sessionId)}` : " --session <请用 /status 看到的 thread ID 替换这里>";
+  const cliPath = ensureTodonotesCliBridge();
+  const sessionCommand = `node ${shellQuote(cliPath)} codex-session --task ${shellQuote(input.taskId)} --session <请用 /status 看到的 thread ID 替换这里>`;
+  const doneCommand = `node ${shellQuote(cliPath)} codex-done --task ${shellQuote(input.taskId)} --block ${shellQuote(input.blockId)}${sessionArg}`;
+  const failedCommand = `node ${shellQuote(cliPath)} codex-failed --task ${shellQuote(input.taskId)} --block ${shellQuote(input.blockId)} --reason ${shellQuote("失败")}`;
+  const lines = [
+    input.prompt,
+    "",
+    "完成本次任务后，请在终端运行下面的命令通知 todonotes 更新对应文本块状态：",
+    doneCommand,
+    "",
+    "如果本次任务失败，请运行：",
+    failedCommand
+  ];
+  if (!input.sessionId) {
+    lines.push(
+      "",
+      "首次发起本页会话时，请先在 Codex App 输入 /status，复制 thread ID 后运行下面的命令，把本页绑定到这个 Codex 会话：",
+      sessionCommand,
+      "",
+      "说明：上面的完成命令也包含 session 占位文本；如果你没有先运行绑定命令，请在完成命令里同样替换这个 thread ID。"
+    );
+  }
+  return lines.join("\n");
+}
+
+export async function startCodexAppPrompt(input: { taskId: string; blockId: string; sessionId?: string | null; cwd: string; prompt: string }) {
+  const prompt = buildCodexAppPrompt(input);
+  clipboard.writeText(prompt);
+  if (input.sessionId) {
+    await shell.openExternal(`codex://threads/${encodeURIComponent(input.sessionId)}`);
+    return { sessionId: input.sessionId, message: "已打开 Codex App，会话 prompt 已复制到剪贴板，请粘贴发送。" };
+  }
+  const url = `codex://threads/new?path=${encodeURIComponent(input.cwd)}&prompt=${encodeURIComponent(prompt)}`;
+  await shell.openExternal(url);
+  return { sessionId: null, message: "已打开 Codex App 新会话，并复制了带回调命令的 prompt。首次完成后请让 Codex 运行回调命令写入 sessionId。" };
+}
+
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function ensureTodonotesCliBridge() {
+  const bridgePath = path.join(app.getPath("userData"), "todonotes-cli.cjs");
+  try {
+    fs.writeFileSync(bridgePath, TODO_NOTES_CLI_BRIDGE, { mode: 0o755 });
+  } catch {
+    // 如果 userData 写入失败，退回开发态脚本路径，后续命令失败时会由 CLI 自己报错。
+    return path.join(app.getAppPath(), "scripts", "todonotes-cli.cjs");
+  }
+  return bridgePath;
 }
 
 interface RunningCodexResume {

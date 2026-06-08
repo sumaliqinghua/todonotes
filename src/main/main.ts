@@ -5,6 +5,7 @@ import { createTaskWindow, getWindowsByType, loadWindowStates, markAppQuitting, 
 import { registerIpcHandlers } from "./ipc/handlers";
 import { checkOverdueOnStartup, startReminderScheduler, stopReminderScheduler } from "./reminderScheduler";
 import { runCleanupOnce, startCleanupJob, stopCleanupJob } from "./cleanup";
+import { startCodexCallbackServer, stopCodexCallbackServer } from "./codexCallbackServer";
 
 function ensureInitialTask() {
   const roots = listRootTasks({ includeArchived: true, includeDeleted: true });
@@ -41,6 +42,7 @@ app.whenReady().then(() => {
   registerIpcHandlers();
   restoreWindows();
   checkOverdueOnStartup();
+  startCodexCallbackServer();
   startReminderScheduler();
   runCleanupOnce();
   startCleanupJob();
@@ -49,6 +51,7 @@ app.whenReady().then(() => {
 app.on("before-quit", () => {
   markAppQuitting();
   persistAllWindowStates();
+  stopCodexCallbackServer();
   stopReminderScheduler();
   stopCleanupJob();
 });

@@ -102,6 +102,8 @@ export interface CodexSendBlockPromptInput {
 export interface CodexSendBlockPromptResult {
   sessionId: string | null;
   finalMessage: string;
+  mode?: CodexMode;
+  message?: string;
 }
 
 export interface ReminderCreateInput {
@@ -124,6 +126,7 @@ export interface PriorityBlock {
 }
 
 export type WorkStatus = "todo" | "doing" | "waiting" | "done";
+export type CodexMode = "terminal" | "app";
 
 export interface StatusBlock {
   taskId: string;

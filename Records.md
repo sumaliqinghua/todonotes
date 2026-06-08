@@ -2000,6 +2000,103 @@
 - **关联假设**：
   - 无。用户已明确“不用兜住历史，我都清除了”。
 
+## [2026-06-08] M0.14-R1-hotfix9 Codex App 模式与 CLI 回调
+- **What（做了什么）**：
+  - `src/shared/types.ts`
+    - 新增 `CodexMode` 类型，取值为 `terminal` 或 `app`。
+    - `terminal` 表示沿用 todonotes 后台执行 Codex CLI 的方式；`app` 表示打开 Codex App deep link，由用户在 Codex App 中查看和继续对话。
+    - `CodexSendBlockPromptResult` 新增可选字段 `mode` 和 `message`，用于告诉前端本次追问是否进入 App 模式，以及需要提示用户的剪贴板/回调说明。
+  - `src/main/db/schema.ts`
+    - 新增 `app_settings` 表，字段包含 `key`、`value`、`updated_at`。
+    - 该表用于保存应用级设置，不挂在单个任务或窗口上；本轮用于保存全局 Codex 模式。
+  - `src/main/db/settingsRepo.ts`
+    - 新增 `getCodexMode()`：读取 `app_settings` 里的 `codex.mode`，不存在或值非法时返回默认值 `terminal`。
+    - 新增 `setCodexMode(mode)`：写入 `codex.mode`，只接受 `terminal` 和 `app`，非法值自动回退为 `terminal`。
+  - `src/shared/ipc.ts`
+    - 新增 `codex:getMode` IPC：渲染进程用它读取当前 Codex 模式。
+    - 新增 `codex:setMode` IPC：渲染进程用它切换 Codex 模式。
+  - `src/main/codexRunner.ts`
+    - 新增 `TODO_NOTES_CALLBACK_PORT = 17373`，作为 todonotes 本地回调服务端口。
+    - 新增 Codex App prompt 构建逻辑：App 模式下把原始文本块内容和 todonotes CLI 回调命令组合成完整 prompt。
+    - 首次 App 会话打开 `codex://threads/new?path=<项目路径>&prompt=<URL_ENCODED_PROMPT>`；已有会话打开 `codex://threads/<sessionId>`。
+    - prompt 同时写入系统剪贴板，避免 Codex App deep link 没有自动填入或用户需要二次粘贴时丢失内容。
+    - 新增运行时 CLI 桥接脚本落盘逻辑：把 `todonotes-cli.cjs` 内容写到 Electron `userData` 目录，再在 prompt 中引用该真实文件路径，降低打包后 `app.asar` 内脚本不可直接由 `node` 执行的风险。
+    - prompt 中提供三类命令：
+      - `codex-session --task <taskId> --session <sessionId>`：首次把 Codex App thread ID 写回当前子页。
+      - `codex-done --task <taskId> --block <blockId> --session <sessionId>`：AI 完成后把文本块改为 `进行中.AI已返回结果:xxm`。
+      - `codex-failed --task <taskId> --block <blockId> --reason 失败`：AI 失败后让文本块保持等待中，等待原因写为 `失败`。
+  - `src/main/codexCallbackServer.ts`
+    - 新增本地 HTTP 回调服务，只监听 `127.0.0.1:17373`。
+    - `POST /codex/callback` 支持 `session`、`done`、`failed` 三种事件。
+    - `session` 事件只更新当前任务页的 `codexSessionId`，并广播 `task:updated`。
+    - `done` 事件更新指定文本块为 `doing`，`waitReason=AI已返回结果`，保存传入的 `sessionId`，广播更新并发送系统通知。
+    - `failed` 事件更新指定文本块为 `waiting`，等待原因使用传入 `reason` 或默认 `失败`，广播更新并发送系统通知。
+  - `src/main/main.ts`
+    - 应用启动完成数据库初始化、窗口恢复和启动补查后，启动 Codex 本地回调服务。
+    - 应用退出前关闭回调服务，避免端口残留。
+  - `scripts/todonotes-cli.cjs`
+    - 新增 todonotes CLI 回调脚本，支持 `codex-session`、`codex-done`、`codex-failed`。
+    - CLI 将参数组装成 JSON 后 POST 到 `http://127.0.0.1:17373/codex/callback`。
+  - `src/main/ipc/handlers.ts`
+    - `codex:sendBlockPrompt` 根据当前 `CodexMode` 分流。
+    - `terminal` 模式保留原有 `codex exec` / `codex exec resume` 流程。
+    - `app` 模式不执行后台 Codex CLI，只打开 Codex App deep link、写剪贴板并立即返回，当前块继续保持前端已写入的 `waiting + AI处理中`。
+    - `codex:openSession` 在 `app` 模式下打开 `codex://threads/<sessionId>`，在 `terminal` 模式下继续复用原有 Terminal 打开逻辑。
+    - 注册 `codex:getMode` 与 `codex:setMode`。
+  - `src/renderer/store/useAppStore.ts`
+    - 新增全局前端状态 `codexMode` 和 `setCodexMode()`。
+  - `src/renderer/components/TitleBar.tsx`
+    - 标题栏新增可选 Codex 模式按钮。
+    - Library 窗口显示 `Codex: Terminal` 或 `Codex: App`，点击后切换模式；Sticky 窗口不显示该按钮。
+  - `src/renderer/App.tsx`
+    - 应用挂载后通过 `codex:getMode` 读取模式。
+    - Library 标题栏传入 `codexMode` 与 `toggleCodexMode()`。
+    - `sendBlockToCodex()` 在 App 模式返回后弹出提示，告诉用户 Codex App 已打开且 prompt 已复制到剪贴板。
+- **Why（为什么这么做）**：
+  - 用户反馈 Terminal 查看体验较差：重复打开窗口、TUI 不自动刷新、后台追加对话后需要杀掉终端重新打开，心智负担高。
+  - Codex App 更适合查看完整对话，但由 `codex exec` 创建的非交互式会话在 App 中实测可能 loading；因此本轮改为提供两种可切换模式，而不是强行替换 Terminal。
+  - Codex App deep link 能打开新会话或已有会话，但不能把首次新建后的 thread ID 自动回传给 todonotes；CLI 回调命令就是这个缺口的桥。
+  - 没有把完整对话、diff 或 AI 工作台内嵌进 todonotes，是为了保持第一版范围小：todonotes 负责“任务块状态与入口”，Codex App 负责“完整 AI 对话与代码工作台”。
+- **How（怎么实现的）**：
+  - Terminal 模式调用链：
+    - 右键文本块或底部 `AI` 按钮
+    - 前端把块状态写为 `waiting + AI处理中`
+    - `codex:sendBlockPrompt`
+    - `runCodexBlockPrompt()`
+    - 首次执行 `codex exec --json --cd <DIR> <prompt>`，后续执行 `codex exec resume --json <SESSION_ID> <prompt>`
+    - 成功后保存 `thread_id` 到 `tasks.codex_session_id`
+    - 文本块改为 `doing + AI已返回结果`
+  - Codex App 模式调用链：
+    - 右键文本块或底部 `AI` 按钮
+    - 前端把块状态写为 `waiting + AI处理中`
+    - `codex:sendBlockPrompt`
+    - `startCodexAppPrompt()`
+    - 生成带 CLI 回调命令的 prompt 并写入剪贴板
+    - 无会话时打开 `codex://threads/new?path=<DIR>&prompt=<PROMPT>`，有会话时打开 `codex://threads/<SESSION_ID>`
+    - Codex 或用户运行 `codex-session` 写回会话 ID
+    - Codex 完成后运行 `codex-done`，todonotes 将文本块改为 `doing + AI已返回结果`
+  - 本地 CLI 回调链：
+    - `node <userData>/todonotes-cli.cjs codex-done ...`
+    - CLI POST 到 `127.0.0.1:17373/codex/callback`
+    - `codexCallbackServer` 读取任务与文本块
+    - `updateBlockStatusInBlocks()` 修改 Tiptap blocks JSON
+    - `updateTask()` 写 SQLite
+    - `broadcast("task:updated")` 通知 Library 和 Sticky 刷新
+    - Electron `Notification` 发送系统通知
+- **用户须知**：
+  - Library 顶部 `Codex: Terminal` / `Codex: App` 是全局模式开关，不是单个子页配置。
+  - `Terminal` 模式适合自动后台执行，todonotes 会在后台等 Codex 完成并自动改状态。
+  - `Codex App` 模式适合查看完整对话；它会打开 Codex App 并复制 prompt，完成状态需要 Codex 或用户运行 prompt 里的 CLI 回调命令。
+  - 首次 App 模式会话需要执行 `/status` 拿到 thread ID，再运行 `codex-session --task <taskId> --session <sessionId>` 绑定当前子页；之后本页永远复用这个 `sessionId`。
+  - 回调命令要求 todonotes 正在运行，因为本地服务只在应用运行期间监听 `127.0.0.1:17373`。
+- **已知限制**：
+  - Codex App deep link 没有自动回传新 thread ID 的机制，所以首次绑定仍需要 `/status` + `codex-session`。
+  - 如果 todonotes 关闭，`codex-done` / `codex-failed` / `codex-session` 会连接失败；重新打开 todonotes 后可再次运行命令。
+  - App 模式不会自动读取 Codex App 对话内容，也不会内嵌 diff；完整内容仍在 Codex App 查看。
+- **关联假设**：
+  - `ASSUMPTIONS.md` 中 `[2026-06-08/M0.14-R1-hotfix9] Codex App 模式通过 prompt 内 CLI 回调绑定会话`。
+  - `ASSUMPTIONS.md` 中 `[2026-06-08/M0.14-R1-hotfix9] todonotes CLI 回调只在应用运行时生效`。
+
 ## [2026-04-29] M0.13-R27 待开始逾期分段系统通知
 - **What（做了什么）**：
   - `src/main/reminderScheduler.ts`

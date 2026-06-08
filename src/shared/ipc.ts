@@ -1,6 +1,7 @@
 import type {
   Attachment,
   AttachmentAddInput,
+  CodexMode,
   CodexSendBlockPromptInput,
   CodexSendBlockPromptResult,
   StatusBlock,
@@ -38,6 +39,8 @@ export interface IpcInvokeMap {
 
   "codex:sendBlockPrompt": (input: CodexSendBlockPromptInput) => CodexSendBlockPromptResult;
   "codex:openSession": (input: { taskId: string }) => { opened: boolean; method: "app" | "terminal" | "none"; message?: string };
+  "codex:getMode": () => { mode: CodexMode };
+  "codex:setMode": (input: { mode: CodexMode }) => { mode: CodexMode };
 
   "edge:create": (input: { parentId: string; childId: string }) => void;
   "edge:delete": (input: { parentId: string; childId: string }) => void;

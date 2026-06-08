@@ -1,6 +1,7 @@
-# 项目现状（最后更新：2026-06-06）
+# 项目现状（最后更新：2026-06-08）
 
 ## 项目概述
+- 当前已完成 M0.14-R1-hotfix9：Codex 集成新增 `Terminal` / `Codex App` 双模式；Library 标题栏可切换模式；Codex App 模式通过 deep link 打开 Codex App、复制带 todonotes CLI 回调命令的 prompt，并支持 `codex-session` 写回本页会话 ID、`codex-done` / `codex-failed` 更新文本块状态。
 - 当前已完成 Build-mac-hotfix2：修复 Electron mac 安装包递归打包导致体积膨胀的问题；新安装包输出到 `release`，`dist` 只保留编译产物，新 `.dmg` 从旧的 `3.2G` 回落到约 `103M`。
 - 当前已完成 M0.14-R1-hotfix8：修复 Electron 主进程 `spawn codex ENOENT`；Codex CLI 现在会按 `CODEX_CLI_PATH`、当前 `PATH`、nvm、Homebrew、Codex App 资源路径自动解析绝对可执行文件。
 - 当前已完成 M0.14-R1-hotfix7：Codex 成功返回后，目标块显示 `进行中.AI已返回结果:xxm`；Sticky 底部快捷状态按钮组新增 `AI` 按钮，可直接对当前块执行“用当前块追问 Codex”。
@@ -69,11 +70,13 @@
   - 渲染层：React 18 + Zustand
   - 编辑器：Tiptap（StarterKit + TaskList + TaskItem + 自定义 `taskLink` 节点）
   - 数据层：better-sqlite3 + SQLite FTS5
-  - Codex 集成：Electron 主进程通过 `child_process.spawn` 调用本机 `codex exec` 和 `codex exec resume`
+  - Codex 集成：支持全局 `CodexMode`，取值为 `terminal` 或 `app`；`terminal` 模式由 Electron 主进程通过 `child_process.spawn` 调用本机 `codex exec` / `codex exec resume`，`app` 模式通过 Codex App deep link + todonotes CLI 本地回调桥接。
   - 打包工具：electron-builder；编译产物目录是 `dist`，安装包输出目录是 `release`
 - 核心架构设计（简要描述）
   - 任务数据主存于 `tasks`，父子关系由 `edges` 独立维护，正文链接块仅作入口展示。
   - Codex 子页会话元数据存于 `tasks.codex_cwd` 和 `tasks.codex_session_id`；文本块作为每次追问输入，块状态仍写在 Tiptap blocks attrs 中。
+  - Codex 全局模式存于 `app_settings` 表，键名为 `codex.mode`，默认值为 `terminal`。
+  - Codex App 模式的状态回写依赖主进程本地 HTTP 服务 `127.0.0.1:17373/codex/callback`；CLI 脚本把 `session`、`done`、`failed` 事件 POST 到该地址。
   - `Library` 与 `Sticky` 双窗口并行，依赖 IPC + 广播事件同步状态。
 - 关键目录结构
   - `src/main/`：IPC、窗口管理、数据库仓储
@@ -86,7 +89,20 @@
 ## 已完成功能
 - P0 主流程：任务树管理、搜索、编辑器基础块、块转子任务、链接块导航。
 - Codex 子页会话第一版：
+  - Library 标题栏新增 Codex 模式切换按钮，显示 `Codex: Terminal` 或 `Codex: App`；该设置全局生效并写入 `app_settings`。
   - 每个子页保存 `codexCwd`（Codex 项目路径）和 `codexSessionId`（Codex 会话 ID）。
+  - `Terminal` 模式：
+    - 首次追问执行 `codex exec --json --cd <DIR> <prompt>` 创建会话。
+    - 后续追问执行 `codex exec resume --json <SESSION_ID> <prompt>` 继续同一会话。
+    - 打开会话时执行 `codex resume --include-non-interactive --cd <DIR> <SESSION_ID>`，并按 TTY 复用已有 Terminal tab。
+  - `Codex App` 模式：
+    - 首次追问打开 `codex://threads/new?path=<DIR>&prompt=<URL_ENCODED_PROMPT>`。
+    - 已有会话打开 `codex://threads/<SESSION_ID>`。
+    - 完整 prompt 会写入剪贴板，prompt 内包含 todonotes CLI 回调命令。
+    - `codex-session --task <taskId> --session <sessionId>` 用于首次把 Codex App thread ID 写回当前子页。
+    - `codex-done --task <taskId> --block <blockId> --session <sessionId>` 用于 AI 完成后把对应文本块更新为 `doing + AI已返回结果`。
+    - `codex-failed --task <taskId> --block <blockId> --reason 失败` 用于失败时保持 `waiting` 并写入失败原因。
+    - 回调服务只监听 `127.0.0.1:17373`，要求 todonotes 正在运行。
   - Codex CLI 通过 `resolveCodexExecutable` 自动查找；可用 `CODEX_CLI_PATH` 显式指定 `codex` 可执行文件绝对路径。
   - Library 详情页和 Sticky 便签普通文本块右键新增“用当前块追问 Codex”。
   - 首次追问前要求输入项目绝对路径；路径保存到当前子页，后续复用。
@@ -239,6 +255,7 @@
   - 文档内容与当前实现入口对齐（Library 顶部下拉插入、Sticky 右键插入、任务树四 Tab、同父重名规则）
 
 ## 当前进度
+- 已完成：M0.14-R1-hotfix9（Codex App 模式与 CLI 回调，支持 Library 顶部切换 Terminal / Codex App）。
 - 已完成：Build-mac-hotfix2（Electron mac 安装包输出改到 `release`，打包输入收敛为运行所需编译产物，避免旧 `.dmg` 和 `.app` 递归进入 `app.asar`）。
 - 已完成：M0.14-R1-hotfix2（Sticky 右键 Codex 菜单点击无反应修复）。
 - 已完成：M0.14-R1（Codex 子页会话与文本块追问第一版）。
@@ -263,8 +280,10 @@
 ## 已知问题 & 技术债
 - 旧的 `/Users/lmy/proj/Others/todonotes/dist/Notes-0.1.0-arm64.dmg` 和 `/Users/lmy/proj/Others/todonotes/dist/mac-arm64` 仍留在磁盘上，属于历史异常构建产物；确认不需要后可清理，不影响后续新构建。
 - Codex App 指定会话 deep link 的官方格式是 `codex://threads/<sessionId>`，但当前 `codex exec` 创建的非交互式会话实测会在 App 中 loading；第一版默认改用终端 `codex resume --include-non-interactive` 打开。
+- Codex App 模式无法从 deep link 自动拿到首次新建 thread ID；第一版通过 prompt 内的 `codex-session --task <taskId> --session <sessionId>` 命令写回当前子页。
+- todonotes CLI 回调只在应用运行时生效；如果应用关闭，`codex-session`、`codex-done`、`codex-failed` 会因为无法连接 `127.0.0.1:17373` 而失败，需要打开应用后重试。
 - 第一版不做 worktree，多条 AI 任务如果同时指向同一个项目路径，仍可能并发修改同一工作区。
-- 第一版不内嵌完整对话和 diff 展示，完整查看依赖终端 `codex resume --include-non-interactive`。
+- 第一版不内嵌完整对话和 diff 展示；Terminal 模式完整查看依赖终端 `codex resume --include-non-interactive`，Codex App 模式完整查看依赖 Codex App。
 - 已打开的 Codex 终端刷新依赖重启同一个 tab 内的 `codex resume`；如果用户正在该终端中输入尚未发送的内容，后台 AI 完成时可能丢失这段未发送输入。
 - 状态到点通知使用当前应用会话内存去重；应用重启后会补查已到点状态块并可能再次发送一次系统通知。
 - 块级状态当前仅覆盖 `paragraph`、`heading`、`listItem`、`taskItem`，不支持对子任务链接卡片 `taskLink` 直接设状态。
@@ -281,6 +300,9 @@
 
 ## 关键配置 & 环境信息
 - `CODEX_CLI_PATH`：可选环境变量，表示 Codex CLI 可执行文件的绝对路径；当 Electron 主进程无法从 `PATH` 或常见安装目录找到 `codex` 时使用。
+- `app_settings.codex.mode`：全局 Codex 模式配置，常用值有 `terminal` 和 `app`；`terminal` 适合后台自动执行，`app` 适合在 Codex App 查看和继续完整对话。
+- `127.0.0.1:17373/codex/callback`：todonotes 主进程本地 Codex 回调服务地址，只监听本机；CLI 命令通过它写回会话 ID 和文本块状态。
+- `scripts/todonotes-cli.cjs`：开发态 CLI 回调脚本；运行时主进程会把同等脚本写到 Electron `userData` 目录，并在 Codex App prompt 中引用该路径，避免打包后 `app.asar` 内脚本不可直接执行。
 - 包管理：npm（含 `npm run dev` / `npm run test`）。
 - 开发启动：`npm run dev` 现在要求 Vite 绑定 `5173` 成功且 `tcp:5173` ready 后才会启动 Electron；若 `5173` 已被占用，Vite 会直接报错退出，而不会再切到 `5174`。
 - Electron 开发启动：`npm run dev` 通过 `scripts/start-electron-dev.cjs` 启动 Electron，并在子进程环境里删除 `ELECTRON_RUN_AS_NODE`，避免 Electron 被强制按 Node 模式运行。

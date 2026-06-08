@@ -112,6 +112,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     reminders,
     windowSettings,
     libraryTab,
+    codexMode,
     setNavPath,
     setCurrentTask,
     setAncestors,
@@ -120,6 +121,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     setSearchQuery,
     setReminders,
     setLibraryTab,
+    setCodexMode,
     updateWindowSettings
   } = useAppStore();
   if (!api) {
@@ -143,6 +145,12 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
   const navPathRef = useRef<string[]>([]);
   const loadTaskRequestIdRef = useRef(0);
   const refreshLibraryRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    void api.invoke("codex:getMode").then((result) => {
+      setCodexMode(result.mode);
+    });
+  }, []);
 
   const currentTaskId = navPath[navPath.length - 1];
   const currentRootTaskId = navPath[0] ?? rootTaskId;
@@ -364,12 +372,15 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
         blocks: waitingBlocks.blocks,
         codexCwd: cwd
       });
-      await api.invoke("codex:sendBlockPrompt", {
+      const result = await api.invoke("codex:sendBlockPrompt", {
         taskId: input.task.id,
         blockId: input.blockId,
         prompt,
         cwd
       });
+      if (result.mode === "app" && result.message) {
+        alert(result.message);
+      }
       await loadTask(input.task.id);
       if (windowType === "library") {
         await refreshLibrary(searchQuery, libraryTab);
@@ -385,6 +396,12 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     if (!result.opened) {
       alert(result.message ?? "当前子页还没有 Codex 会话");
     }
+  };
+
+  const toggleCodexMode = async () => {
+    const nextMode = codexMode === "terminal" ? "app" : "terminal";
+    const result = await api.invoke("codex:setMode", { mode: nextMode });
+    setCodexMode(result.mode);
   };
 
   const showMenu = (nextMenu: ContextMenuState | null) => {
@@ -980,6 +997,8 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             updateWindowSettings({ opacity: next });
             api.invoke("window:updateState", { windowId, opacity: next });
           }}
+          codexMode={codexMode}
+          onToggleCodexMode={toggleCodexMode}
           showAdvancedControls={false}
         />
         <div className="flex min-h-0 flex-1 flex-col gap-5 p-5 lg:flex-row">
