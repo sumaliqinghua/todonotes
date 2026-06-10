@@ -1,6 +1,8 @@
 # 项目现状（最后更新：2026-06-08）
 
 ## 项目概述
+- 当前已完成 M0.14-R1-hotfix12：Codex App 模式支持未配置项目路径时以纯对话方式发起新会话；右键菜单新增“清除本页 Codex 会话”，确认后只清除当前子页 `codexSessionId`，保留 `codexCwd`，下次追问按新会话发起。
+- 当前已完成 M0.14-R1-hotfix11：系统通知支持点击后切回 todonotes Sticky 便签；AI 回调通知、状态到点通知、状态分段通知会定位到来源文本块，普通任务提醒会定位到对应任务便签页。
 - 当前已完成 M0.14-R1-hotfix10：Codex App 模式 prompt 改为“原始问题 + todonotes-callback skill + 短元数据块”，不再把大段 CLI 命令混进用户问题；发起新文本块 AI 时会清理本页旧 AI 专用状态，旧 AI 任务晚回调不会复活旧状态，Codex 回调系统通知也做了保活增强。
 - 当前已完成 M0.14-R1-hotfix9：Codex 集成新增 `Terminal` / `Codex App` 双模式；Library 标题栏可切换模式；Codex App 模式通过 deep link 打开 Codex App、复制带 todonotes CLI 回调命令的 prompt，并支持 `codex-session` 写回本页会话 ID、`codex-done` / `codex-failed` 更新文本块状态。
 - 当前已完成 Build-mac-hotfix2：修复 Electron mac 安装包递归打包导致体积膨胀的问题；新安装包输出到 `release`，`dist` 只保留编译产物，新 `.dmg` 从旧的 `3.2G` 回落到约 `103M`。
@@ -79,6 +81,7 @@
   - Codex 全局模式存于 `app_settings` 表，键名为 `codex.mode`，默认值为 `terminal`。
   - Codex App 模式的状态回写依赖主进程本地 HTTP 服务 `127.0.0.1:17373/codex/callback`；CLI 脚本把 `session`、`done`、`failed` 事件 POST 到该地址。
   - Codex App 模式会确保 `~/.codex/skills/todonotes-callback/SKILL.md` 存在；prompt 只传 `todonotes_callback` 元数据块，由 skill 在对话结束前执行 CLI 回调。
+  - 通知点击统一走 `showTaskNotification()`；主进程通过 `focusStickyTaskBlock()` 复用或打开 Sticky，渲染进程通过 `window:focus-block` 事件导航并滚动到文本块。
   - `Library` 与 `Sticky` 双窗口并行，依赖 IPC + 广播事件同步状态。
 - 关键目录结构
   - `src/main/`：IPC、窗口管理、数据库仓储
@@ -99,6 +102,7 @@
     - 打开会话时执行 `codex resume --include-non-interactive --cd <DIR> <SESSION_ID>`，并按 TTY 复用已有 Terminal tab。
   - `Codex App` 模式：
     - 首次追问打开 `codex://threads/new?path=<DIR>&prompt=<URL_ENCODED_PROMPT>`。
+    - 如果当前子页没有配置 `codexCwd`，首次追问打开 `codex://threads/new?prompt=<URL_ENCODED_PROMPT>`，作为无项目路径的纯对话。
     - 已有会话打开 `codex://threads/<SESSION_ID>`。
     - 完整 prompt 会写入剪贴板；prompt 内只包含原始问题、`todonotes-callback` skill 提示和 `todonotes_callback` 元数据块，不再直接展示完整 CLI 命令。
     - `codex-session --task <taskId> --session <sessionId>` 用于首次把 Codex App thread ID 写回当前子页。
@@ -107,6 +111,7 @@
     - 回调服务只监听 `127.0.0.1:17373`，要求 todonotes 正在运行。
     - 发起新的文本块 AI 前，会清理当前页旧的 AI 专用状态：`AI处理中`、`AI已返回结果`、`失败`。人工等待原因不受影响。
     - `codex-done` / `codex-failed` 只有在目标块仍为 `waiting + AI处理中` 时才更新块状态；如果用户已经发起下一块 AI，旧回调不会把旧块重新标成 AI 已返回。
+    - 右键菜单提供“清除本页 Codex 会话”；确认后清除 `codexSessionId`，不清除 `codexCwd`，下次追问按新会话处理。
   - Codex CLI 通过 `resolveCodexExecutable` 自动查找；可用 `CODEX_CLI_PATH` 显式指定 `codex` 可执行文件绝对路径。
   - Library 详情页和 Sticky 便签普通文本块右键新增“用当前块追问 Codex”。
   - 首次追问前要求输入项目绝对路径；路径保存到当前子页，后续复用。
@@ -259,6 +264,8 @@
   - 文档内容与当前实现入口对齐（Library 顶部下拉插入、Sticky 右键插入、任务树四 Tab、同父重名规则）
 
 ## 当前进度
+- 已完成：M0.14-R1-hotfix12（Codex App 无项目路径纯对话，清除本页 Codex 会话 ID）。
+- 已完成：M0.14-R1-hotfix11（通知点击切回 Sticky 并定位文本块；任务级提醒点击回到任务页）。
 - 已完成：M0.14-R1-hotfix10（Codex App prompt 收敛为 skill 回调，开启新 AI 清理旧 AI 状态，旧回调不复活旧块）。
 - 已完成：M0.14-R1-hotfix9（Codex App 模式与 CLI 回调，支持 Library 顶部切换 Terminal / Codex App）。
 - 已完成：Build-mac-hotfix2（Electron mac 安装包输出改到 `release`，打包输入收敛为运行所需编译产物，避免旧 `.dmg` 和 `.app` 递归进入 `app.asar`）。
@@ -287,6 +294,7 @@
 - Codex App 指定会话 deep link 的官方格式是 `codex://threads/<sessionId>`，但当前 `codex exec` 创建的非交互式会话实测会在 App 中 loading；第一版默认改用终端 `codex resume --include-non-interactive` 打开。
 - Codex App 模式无法从 deep link 自动拿到首次新建 thread ID；第一版通过 prompt 内的 `codex-session --task <taskId> --session <sessionId>` 命令写回当前子页。
 - Codex App 模式依赖 `todonotes-callback` skill 执行回调；如果 Codex App 没有及时加载新 skill，prompt 会提示读取 `~/.codex/skills/todonotes-callback/SKILL.md` 作为兜底。
+- 普通 `reminders` 表当前只保存任务级 `taskId` 和 `remindAt`，没有 `blockId`；因此普通任务提醒点击后只能回到任务便签页，不能定位到具体文本块。状态类通知和 AI 通知带 `blockId`，可以定位文本块。
 - todonotes CLI 回调只在应用运行时生效；如果应用关闭，`codex-session`、`codex-done`、`codex-failed` 会因为无法连接 `127.0.0.1:17373` 而失败，需要打开应用后重试。
 - 第一版不做 worktree，多条 AI 任务如果同时指向同一个项目路径，仍可能并发修改同一工作区。
 - 第一版不内嵌完整对话和 diff 展示；Terminal 模式完整查看依赖终端 `codex resume --include-non-interactive`，Codex App 模式完整查看依赖 Codex App。
@@ -318,3 +326,4 @@
 - 原生依赖安装：`postinstall` 使用 `electron-builder install-app-deps`，用于让 `better-sqlite3` 等原生模块匹配当前 Electron 版本。
 - 主要本地数据：SQLite（`tasks`、`edges`、`window_states`、`tasks_fts`）。
 - IPC 关键事件：`task:updated`、`task:deleted`、`window:settings-updated`、`window:sticky-shared-updated`。
+- 通知定位事件：`window:focus-block`，载荷包含 `taskId` 和可选 `blockId`；主进程通知点击后发送给目标 Sticky 窗口。

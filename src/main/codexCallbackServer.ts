@@ -1,12 +1,11 @@
 import http from "http";
-import { app, Notification } from "electron";
 import { TODO_NOTES_CALLBACK_PORT } from "./codexRunner";
 import { updateTask, getTaskById } from "./db/tasksRepo";
 import { isCodexProcessingBlock, updateBlockStatusInBlocks } from "../shared/blockStatus";
 import { broadcast } from "./ipc/events";
+import { showTaskNotification } from "./notificationActions";
 
 let server: http.Server | null = null;
-const activeNotifications = new Set<Notification>();
 
 function sendJson(res: http.ServerResponse, statusCode: number, payload: unknown) {
   res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
@@ -26,25 +25,6 @@ function readBody(req: http.IncomingMessage) {
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
-}
-
-function showAiNotification(title: string, body: string) {
-  if (!Notification.isSupported()) {
-    return;
-  }
-  if (process.platform === "darwin") {
-    app.focus({ steal: false });
-  }
-  const notification = new Notification({ title, body, silent: false });
-  activeNotifications.add(notification);
-  const release = () => {
-    activeNotifications.delete(notification);
-  };
-  notification.once("show", () => {
-    setTimeout(release, 5000);
-  });
-  notification.once("failed", release);
-  notification.show();
 }
 
 function updateCodexBlock(input: { taskId: string; blockId: string; sessionId?: string | null; status: "doing" | "waiting"; reason: string }) {
@@ -98,7 +78,7 @@ async function handleCodexCallback(req: http.IncomingMessage, res: http.ServerRe
       }
       const nextTask = updateTask({ id: task.id, codexSessionId: payload.sessionId.trim() });
       broadcast("task:updated", { taskId: nextTask.id });
-      showAiNotification("Codex 会话已绑定", nextTask.title);
+      showTaskNotification({ title: "Codex 会话已绑定", body: nextTask.title, taskId: nextTask.id });
       sendJson(res, 200, { ok: true });
       return;
     }
@@ -114,7 +94,7 @@ async function handleCodexCallback(req: http.IncomingMessage, res: http.ServerRe
         reason: "AI已返回结果"
       });
       if (result.statusChanged) {
-        showAiNotification("AI 已返回结果", result.task.title);
+        showTaskNotification({ title: "AI 已返回结果", body: result.task.title, taskId: result.task.id, blockId: payload.blockId });
       }
       sendJson(res, 200, { ok: true });
       return;
@@ -128,7 +108,7 @@ async function handleCodexCallback(req: http.IncomingMessage, res: http.ServerRe
         reason: payload.reason?.trim() || "失败"
       });
       if (result.statusChanged) {
-        showAiNotification("AI 处理失败", result.task.title);
+        showTaskNotification({ title: "AI 处理失败", body: result.task.title, taskId: result.task.id, blockId: payload.blockId });
       }
       sendJson(res, 200, { ok: true });
       return;

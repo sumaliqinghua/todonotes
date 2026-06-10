@@ -58,6 +58,7 @@ interface Props {
   onRequestTitle: (options: { title: string; placeholder?: string; defaultValue?: string }) => Promise<string | null>;
   onSendBlockToCodex: (input: { task: Task; blockId: string; blockText: string; blocks: any }) => Promise<void>;
   onOpenCodexSession: (task: Task) => Promise<void>;
+  onClearCodexSession: (task: Task) => Promise<void>;
   onShowMenu: (menu: ContextMenuState | null) => void;
   onHistoryBack: () => void;
   onHistoryForward: () => void;
@@ -111,6 +112,7 @@ export default function StickyView({
   onRequestTitle,
   onSendBlockToCodex,
   onOpenCodexSession,
+  onClearCodexSession,
   onShowMenu,
   onHistoryBack,
   onHistoryForward,
@@ -359,12 +361,19 @@ export default function StickyView({
 
   useEffect(() => {
     const handleScrollToBlock = (event: Event) => {
-      if (!editor || !task) return;
       const customEvent = event as CustomEvent<string>;
       const blockId = customEvent.detail;
       if (!blockId) return;
+      if (!editor || !task) {
+        pendingFocusRef.current = { taskId: latestTaskIdRef.current ?? "", blockId };
+        return;
+      }
+      pendingFocusRef.current = { taskId: task.id, blockId };
 
       setTimeout(() => {
+        if (!editor || !task) {
+          return;
+        }
         const blockElement = editor.view.dom.querySelector(`[data-node-id="${blockId}"]`);
         if (blockElement) {
           blockElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -372,6 +381,7 @@ export default function StickyView({
           setTimeout(() => {
             blockElement.classList.remove('bg-blue-50', 'dark:bg-blue-900/30');
           }, 2000);
+          pendingFocusRef.current = null;
         }
       }, 300);
     };
@@ -1834,6 +1844,13 @@ export default function StickyView({
             action: () => {
               void onOpenCodexSession(task);
             }
+          },
+          {
+            label: "清除本页 Codex 会话",
+            disabled: !task.codexSessionId,
+            action: () => {
+              void onClearCodexSession(task);
+            }
           }
         ]
       : [
@@ -1846,6 +1863,13 @@ export default function StickyView({
             disabled: !task.codexSessionId,
             action: () => {
               void onOpenCodexSession(task);
+            }
+          },
+          {
+            label: "清除本页 Codex 会话",
+            disabled: !task.codexSessionId,
+            action: () => {
+              void onClearCodexSession(task);
             }
           }
         ];

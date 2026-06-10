@@ -260,15 +260,12 @@ export function registerIpcHandlers() {
     if (!task) {
       throw new Error("任务不存在，无法发送到 Codex");
     }
-    const cwd = input.cwd.trim();
-    if (!cwd) {
-      throw new Error("请先配置项目路径");
-    }
+    const cwd = input.cwd?.trim() ?? "";
     if (!input.prompt.trim()) {
       throw new Error("当前文本块没有可发送内容");
     }
 
-    if (task.codexCwd !== cwd) {
+    if (cwd && task.codexCwd !== cwd) {
       updateTask({ id: task.id, codexCwd: cwd });
     }
 
@@ -287,6 +284,10 @@ export function registerIpcHandlers() {
         mode: "app",
         message: result.message
       };
+    }
+
+    if (!cwd) {
+      throw new Error("请先配置项目路径");
     }
 
     try {
@@ -332,6 +333,16 @@ export function registerIpcHandlers() {
       const message = error instanceof Error && error.message ? error.message : "打开 Codex 会话失败";
       return { opened: false, method: "none" as const, message };
     }
+  });
+
+  ipcMain.handle("codex:clearSession", (_event, input: Parameters<IpcInvokeMap["codex:clearSession"]>[0]) => {
+    const task = getTaskById(input.taskId);
+    if (!task) {
+      throw new Error("任务不存在，无法清除 Codex 会话");
+    }
+    updateTask({ id: task.id, codexSessionId: null });
+    broadcast("task:updated", { taskId: task.id });
+    return { cleared: true };
   });
 
   ipcMain.handle("codex:getMode", () => {

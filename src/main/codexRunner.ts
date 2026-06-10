@@ -264,16 +264,18 @@ function buildCodexAppPrompt(input: { taskId: string; blockId: string; prompt: s
   ].join("\n");
 }
 
-export async function startCodexAppPrompt(input: { taskId: string; blockId: string; sessionId?: string | null; cwd: string; prompt: string }) {
+export async function startCodexAppPrompt(input: { taskId: string; blockId: string; sessionId?: string | null; cwd?: string | null; prompt: string }) {
   const prompt = buildCodexAppPrompt(input);
   clipboard.writeText(prompt);
   if (input.sessionId) {
     await shell.openExternal(`codex://threads/${encodeURIComponent(input.sessionId)}`);
     return { sessionId: input.sessionId, message: "已打开 Codex App，会话 prompt 已复制到剪贴板，请粘贴发送。" };
   }
-  const url = `codex://threads/new?path=${encodeURIComponent(input.cwd)}&prompt=${encodeURIComponent(prompt)}`;
+  const pathParam = input.cwd?.trim() ? `path=${encodeURIComponent(input.cwd.trim())}&` : "";
+  const url = `codex://threads/new?${pathParam}prompt=${encodeURIComponent(prompt)}`;
   await shell.openExternal(url);
-  return { sessionId: null, message: "已打开 Codex App 新会话，并复制了带回调命令的 prompt。首次完成后请让 Codex 运行回调命令写入 sessionId。" };
+  const scopeText = input.cwd?.trim() ? "项目会话" : "纯对话";
+  return { sessionId: null, message: `已打开 Codex App 新${scopeText}，并复制了 prompt。首次完成前请让 Codex 使用 todonotes-callback skill 写入 sessionId 和任务状态。` };
 }
 
 function shellQuote(value: string) {

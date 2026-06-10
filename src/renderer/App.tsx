@@ -333,10 +333,13 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     }
   };
 
-  const ensureCodexCwd = async (task: Task) => {
+  const ensureCodexCwd = async (task: Task, options?: { optional?: boolean }) => {
     const existing = task.codexCwd?.trim();
     if (existing) {
       return existing;
+    }
+    if (options?.optional) {
+      return null;
     }
     const input = await requestTitle({
       title: "配置项目路径",
@@ -353,10 +356,12 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       alert("当前文本块没有可发送内容");
       return;
     }
-    const cwd = await ensureCodexCwd(input.task);
+    const cwd = await ensureCodexCwd(input.task, { optional: codexMode === "app" });
     if (!cwd) {
-      alert("未配置项目路径，已取消发送");
-      return;
+      if (codexMode !== "app") {
+        alert("未配置项目路径，已取消发送");
+        return;
+      }
     }
     const clearedBlocks = clearCodexStatusAttrsInBlocks(input.blocks, input.blockId);
     const waitingBlocks = updateBlockStatusInBlocks(clearedBlocks.blocks, input.blockId, {
@@ -371,13 +376,13 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       await api.invoke("task:update", {
         id: input.task.id,
         blocks: waitingBlocks.blocks,
-        codexCwd: cwd
+        ...(cwd ? { codexCwd: cwd } : {})
       });
       const result = await api.invoke("codex:sendBlockPrompt", {
         taskId: input.task.id,
         blockId: input.blockId,
         prompt,
-        cwd
+        cwd: cwd ?? null
       });
       if (result.mode === "app" && result.message) {
         alert(result.message);
@@ -396,6 +401,18 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     const result = await api.invoke("codex:openSession", { taskId: task.id });
     if (!result.opened) {
       alert(result.message ?? "当前子页还没有 Codex 会话");
+    }
+  };
+
+  const clearCodexSessionForTask = async (task: Task) => {
+    const confirmed = window.confirm("清除本页 Codex 会话 ID？确认后，下次“用当前块追问 Codex”会作为新对话发起。项目路径不会被清除。");
+    if (!confirmed) {
+      return;
+    }
+    await api.invoke("codex:clearSession", { taskId: task.id });
+    await loadTask(task.id);
+    if (windowType === "library") {
+      await refreshLibrary(searchQuery, libraryTab);
     }
   };
 
@@ -805,6 +822,18 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     const offReminder = api.on("reminder:trigger", ({ reminders }) => {
       setReminders(reminders);
     });
+    const offFocusBlock = api.on("window:focus-block", (payload) => {
+      if (windowType !== "sticky") {
+        return;
+      }
+      void navigateToTask(payload.taskId, true, true).then(() => {
+        if (payload.blockId) {
+          window.setTimeout(() => {
+            window.dispatchEvent(new CustomEvent("scroll-to-block", { detail: payload.blockId }));
+          }, 120);
+        }
+      });
+    });
     const offSettings = api.on("window:settings-updated", (payload) => {
       if (payload.windowId !== windowId) {
         return;
@@ -870,6 +899,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       offUpdated();
       offDeleted();
       offReminder();
+      offFocusBlock();
       offSettings();
       offStickyShared();
       offContextMenuSelected();
@@ -942,6 +972,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           onRequestTitle={requestTitle}
           onSendBlockToCodex={sendBlockToCodex}
           onOpenCodexSession={openCodexSessionForTask}
+          onClearCodexSession={clearCodexSessionForTask}
           onShowMenu={showMenu}
           isPinned={alwaysOnTop}
           onTogglePin={() => {
@@ -1058,6 +1089,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             onRequestTitle={requestTitle}
             onSendBlockToCodex={sendBlockToCodex}
             onOpenCodexSession={openCodexSessionForTask}
+            onClearCodexSession={clearCodexSessionForTask}
             onShowMenu={showMenu}
             />
           </div>

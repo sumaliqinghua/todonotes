@@ -1,9 +1,9 @@
-import { Notification } from "electron";
 import { listDueReminders, markReminderDone } from "./db/remindersRepo";
 import { listAllActiveStatusBlocks } from "./db/tasksRepo";
 import { broadcast } from "./ipc/events";
 import type { StatusBlock } from "../shared/types";
 import { getPlannedEndAt, parseTimestamp } from "../shared/blockStatus";
+import { showTaskNotification } from "./notificationActions";
 
 let timer: NodeJS.Timeout | null = null;
 const notifiedStatusKeys = new Set<string>();
@@ -14,17 +14,12 @@ interface DueStatusNotification {
   key: string;
   title: string;
   body: string;
+  taskId: string;
+  blockId: string;
 }
 
 interface StatusCheckOptions {
   includeStatusFollowUps: boolean;
-}
-
-function showSystemNotification(title: string, body: string) {
-  if (!Notification.isSupported()) {
-    return;
-  }
-  new Notification({ title, body }).show();
 }
 
 function statusNotificationDueAt(block: StatusBlock): number | null {
@@ -83,7 +78,9 @@ function buildStatusFollowUpNotifications(
     return [{
       key,
       title: block.workStatus === "todo" ? formatTodoFollowUpTitle(delayMinutes) : formatWaitingFollowUpTitle(delayMinutes),
-      body: `${block.taskTitle}: ${preview}${reason}`
+      body: `${block.taskTitle}: ${preview}${reason}`,
+      taskId: block.taskId,
+      blockId: block.blockId
     }];
   });
 }
@@ -102,14 +99,18 @@ function buildStatusNotification(block: StatusBlock, now: number): DueStatusNoti
     return {
       key,
       title: "待开始时间到了",
-      body: `${block.taskTitle}: ${preview}`
+      body: `${block.taskTitle}: ${preview}`,
+      taskId: block.taskId,
+      blockId: block.blockId
     };
   }
   if (block.workStatus === "doing") {
     return {
       key,
       title: "进行中已超时",
-      body: `${block.taskTitle}: ${preview}`
+      body: `${block.taskTitle}: ${preview}`,
+      taskId: block.taskId,
+      blockId: block.blockId
     };
   }
   if (block.workStatus === "waiting") {
@@ -117,7 +118,9 @@ function buildStatusNotification(block: StatusBlock, now: number): DueStatusNoti
     return {
       key,
       title: "等待回看时间到了",
-      body: `${block.taskTitle}: ${preview}${reason}`
+      body: `${block.taskTitle}: ${preview}${reason}`,
+      taskId: block.taskId,
+      blockId: block.blockId
     };
   }
   return null;
@@ -137,7 +140,7 @@ function checkDueStatusBlocks(now: number, options: StatusCheckOptions = { inclu
     return notifications;
   });
   dueNotifications.forEach((item) => {
-    showSystemNotification(item.title, item.body);
+    showTaskNotification({ title: item.title, body: item.body, taskId: item.taskId, blockId: item.blockId });
     notifiedStatusKeys.add(item.key);
   });
   lastStatusCheckAt = now;
@@ -156,7 +159,7 @@ function checkDueReminders(now: number) {
   if (due.length > 0) {
     broadcast("reminder:trigger", { reminders: due });
     due.forEach((reminder) => {
-      showSystemNotification("到期提醒", `任务 ${reminder.taskId.slice(0, 6)} 有提醒到期`);
+      showTaskNotification({ title: "到期提醒", body: `任务 ${reminder.taskId.slice(0, 6)} 有提醒到期`, taskId: reminder.taskId });
       markReminderDone(reminder.id);
     });
   }

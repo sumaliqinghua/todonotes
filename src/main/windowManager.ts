@@ -411,6 +411,67 @@ export function getWindowsByType(windowType: WindowState["windowType"]) {
   return result;
 }
 
+function getStickyFocusTarget(taskId: string) {
+  const { getAncestorChain } = require("./db/tasksRepo") as typeof import("./db/tasksRepo");
+  const chain = getAncestorChain(taskId);
+  const sharedRootTaskId = chain[0]?.id ?? taskId;
+  const navPathTaskIds = [...chain.map((task) => task.id), taskId];
+  return { sharedRootTaskId, navPathTaskIds };
+}
+
+export function focusStickyTaskBlock(taskId: string, blockId?: string) {
+  if (!taskId) {
+    return;
+  }
+  const { sharedRootTaskId, navPathTaskIds } = getStickyFocusTarget(taskId);
+  let targetWindowId: string | null = null;
+  let targetWindow: BrowserWindow | null = null;
+
+  windowStates.forEach((state, windowId) => {
+    if (targetWindow || state.windowType !== "sticky" || state.rootTaskId !== sharedRootTaskId) {
+      return;
+    }
+    const win = windows.get(windowId);
+    if (win && !win.isDestroyed()) {
+      targetWindowId = windowId;
+      targetWindow = win;
+    }
+  });
+
+  if (!targetWindow || !targetWindowId) {
+    const created = createTaskWindow(sharedRootTaskId, undefined, { windowType: "sticky", navPathTaskIds });
+    targetWindowId = created.windowId;
+    targetWindow = created.window;
+  } else {
+    updateWindowState({ windowId: targetWindowId, rootTaskId: sharedRootTaskId, navPathTaskIds });
+  }
+
+  const payload: IpcEventMap["window:focus-block"] = {
+    taskId,
+    ...(blockId ? { blockId } : {})
+  };
+  const sendFocusEvent = () => {
+    if (!targetWindow || targetWindow.isDestroyed()) {
+      return;
+    }
+    targetWindow.webContents.send("window:focus-block", payload);
+  };
+
+  if (targetWindow.isMinimized()) {
+    targetWindow.restore();
+  }
+  targetWindow.show();
+  targetWindow.focus();
+  app.focus({ steal: false });
+  if (targetWindow.webContents.isLoading()) {
+    targetWindow.webContents.once("did-finish-load", () => {
+      setTimeout(sendFocusEvent, 80);
+    });
+  } else {
+    setTimeout(sendFocusEvent, 80);
+  }
+}
+
 export function markAppQuitting() {
   isQuitting = true;
 }

@@ -5,6 +5,9 @@ const notificationShow = vi.fn();
 const listAllActiveStatusBlocks = vi.fn<[], StatusBlock[]>();
 
 vi.mock("electron", () => ({
+  app: {
+    focus: vi.fn()
+  },
   Notification: class {
     static isSupported() {
       return true;
@@ -16,6 +19,10 @@ vi.mock("electron", () => ({
     constructor(options: { title: string; body: string }) {
       this.title = options.title;
       this.body = options.body;
+    }
+
+    once() {
+      return this;
     }
 
     show() {

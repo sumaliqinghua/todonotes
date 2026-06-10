@@ -96,7 +96,7 @@ export interface CodexSendBlockPromptInput {
   taskId: string;
   blockId: string;
   prompt: string;
-  cwd: string;
+  cwd?: string | null;
 }
 
 export interface CodexSendBlockPromptResult {

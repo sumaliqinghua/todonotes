@@ -1,6 +1,8 @@
 # PRD（需求文档）
 
 ## 变更历史
+- 2026-06-08：Codex App 模式支持无项目路径纯对话与清除本页会话：当全局模式为 `Codex App` 且当前子页未配置 `codexCwd` 时，不再弹“未配置项目路径，已取消发送”，而是打开不带 `path` 参数的 `codex://threads/new?prompt=<提示词>`；右键菜单新增“清除本页 Codex 会话”，确认后只清除当前子页 `codexSessionId`，保留 `codexCwd`，下次追问按新会话发起。
+- 2026-06-08：新增通知点击回到便签定位：AI 回调通知、状态到点通知、状态分段通知点击后会打开或聚焦对应 Sticky 便签，并定位到来源文本块；普通任务提醒由于当前数据只保存 `taskId`，点击后会打开或聚焦对应任务便签页。
 - 2026-06-08：优化 Codex App 模式 prompt 与 AI 状态切换：App 模式不再把完整 `codex-session` / `codex-done` / `codex-failed` 命令直接拼进用户问题正文，而是生成 `todonotes-callback` Codex skill，并在 prompt 末尾只附加短小的 `todonotes_callback` 元数据块；Codex 对话结束前由该 skill 执行本地 CLI 回调。发起新的文本块 AI 时会清理本页旧的 AI 专用状态（`AI处理中`、`AI已返回结果`、`失败`），但保留人工等待原因；旧 AI 回调如果目标块已不再处于 `AI处理中`，不会重新把旧块标为 AI 已返回。
 - 2026-06-08：新增 Codex 双模式与 CLI 回调：Library 标题栏可在 `Terminal` 与 `Codex App` 模式之间切换；Terminal 模式保留现有 `codex exec` / `codex resume` 流程；Codex App 模式通过 `codex://threads/new?path=<项目路径>&prompt=<提示词>` 或 `codex://threads/<sessionId>` 打开 Codex App，并把带 todonotes CLI 回调命令的 prompt 写入剪贴板；Codex 可运行 `codex-session` 写回当前子页 `sessionId`，运行 `codex-done` / `codex-failed` 更新对应文本块状态。
 - 2026-06-06：修复 mac 安装包体积异常膨胀：electron-builder 最终输出目录从 `dist` 改为 `release`；打包输入从 `dist/**/*` 收敛为 `dist/main`、`dist/preload`、`dist/renderer`、`dist/shared` 和 `package.json`，避免旧 `.dmg`、`.blockmap`、`mac-arm64` 再次进入 `app.asar`。

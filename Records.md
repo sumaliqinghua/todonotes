@@ -1,5 +1,115 @@
 # 实现记录（Records）
 
+## [2026-06-08] M0.14-R1-hotfix12 Codex App 纯对话与清除本页会话
+- **What（做了什么）**：
+  - `src/shared/types.ts`
+    - 将 `CodexSendBlockPromptInput.cwd` 从必填字符串改为可选字符串或 `null`。
+    - `cwd` 表示 Codex 会话的项目路径；为空时仅允许 `Codex App` 模式发起纯对话。
+  - `src/shared/ipc.ts`
+    - 新增 `codex:clearSession` IPC，输入为 `{ taskId }`，输出为 `{ cleared: boolean }`。
+  - `src/main/ipc/handlers.ts`
+    - `codex:sendBlockPrompt` 不再在入口统一拒绝空 `cwd`。
+    - `Codex App` 模式允许 `cwd` 为空，并调用 `startCodexAppPrompt()` 发起无项目路径 deep link。
+    - `Terminal` 模式仍要求 `cwd` 非空；因为 `codex exec --cd <DIR>` 必须知道本地项目目录。
+    - 新增 `codex:clearSession` handler，只把当前任务页的 `codexSessionId` 更新为 `null`，并广播 `task:updated`。
+  - `src/main/codexRunner.ts`
+    - `startCodexAppPrompt()` 的 `cwd` 改为可选。
+    - 有项目路径时打开 `codex://threads/new?path=<DIR>&prompt=<PROMPT>`。
+    - 无项目路径时打开 `codex://threads/new?prompt=<PROMPT>`，作为 Codex App 纯对话。
+    - 返回提示文案区分“新项目会话”和“新纯对话”。
+  - `src/renderer/App.tsx`
+    - `ensureCodexCwd()` 新增 `optional` 选项。
+    - 全局 Codex 模式为 `app` 时，未配置项目路径不再弹路径输入框，也不再提示“未配置项目路径，已取消发送”。
+    - 发送前保存 blocks 时，仅在存在 `cwd` 时写入 `codexCwd`。
+    - 新增 `clearCodexSessionForTask()`：弹出确认框；用户确认后调用 `codex:clearSession`，重新加载当前任务和 Library。
+  - `src/renderer/components/TaskDetail.tsx`
+    - Library 详情页右键菜单新增“清除本页 Codex 会话”。
+    - 该菜单项在没有 `codexSessionId` 时禁用。
+  - `src/renderer/components/StickyView.tsx`
+    - Sticky 便签右键菜单新增同样的“清除本页 Codex 会话”。
+- **Why（为什么这么做）**：
+  - 用户反馈：Codex App deep link 本身支持不配置项目路径，所以未配置 `codexCwd` 时不应该取消发送；这类场景应作为“纯对话”处理。
+  - 用户还希望当前页能主动清除 `sessionId`，这样下次追问可以摆脱旧上下文，重新开一个新 Codex 对话。
+  - 保留 `codexCwd` 是为了避免用户只是想重开会话，却丢失已经配置好的项目路径。
+- **How（怎么实现的）**：
+  - App 模式纯对话链路：
+    - 用户切到 `Codex: App`
+    - 当前页没有 `codexCwd`
+    - 用户右键文本块选择“用当前块追问 Codex”
+    - 前端跳过路径输入框
+    - 主进程生成 prompt 并打开 `codex://threads/new?prompt=<PROMPT>`
+    - Codex App 创建无项目路径的新对话
+  - 清除会话链路：
+    - 用户右键选择“清除本页 Codex 会话”
+    - 前端弹确认框
+    - 确认后调用 `codex:clearSession`
+    - 主进程写入 `tasks.codex_session_id = NULL`
+    - 任务更新广播刷新页面
+    - 下次追问因没有 `codexSessionId`，按新会话发起
+- **用户须知**：
+  - `Codex App` 模式下，不配置项目路径也能发起 AI；这种会话没有本地项目工作区，只适合问答、分析、纯文本讨论。
+  - `Terminal` 模式仍然必须配置项目路径，因为后台 `codex exec` 需要明确在哪个目录运行。
+  - “清除本页 Codex 会话”只清 `sessionId`，不清项目路径；下次追问会新开对话，但仍可复用原项目路径。
+- **已知限制**：
+  - 纯对话无法让 Codex 直接基于本地项目路径读取代码；需要项目上下文时仍应配置 `codexCwd`。
+- **关联假设**：
+  - 无。本轮按用户明确反馈实现。
+
+## [2026-06-08] M0.14-R1-hotfix11 通知点击切回便签并定位文本块
+- **What（做了什么）**：
+  - `src/main/notificationActions.ts`
+    - 新增统一通知工具 `showTaskNotification()`。
+    - 该函数负责创建 Electron 系统通知，并在用户点击通知时调用 `focusStickyTaskBlock(taskId, blockId)`。
+    - `taskId` 表示要打开的任务页；`blockId` 是可选字段，存在时表示还要定位到具体文本块。
+    - 通知弹出时不主动切换应用，只有用户点击通知时才切回 todonotes。
+  - `src/main/windowManager.ts`
+    - 新增 `focusStickyTaskBlock(taskId, blockId?)`。
+    - 根据目标任务的祖先链计算 Sticky 共享根：祖先链第一个任务是共享根，没有祖先时目标任务自己就是共享根。
+    - 优先复用同共享根的 Sticky 窗口；如果没有，则创建新的 Sticky 窗口。
+    - 更新 Sticky 的 `navPathTaskIds` 为真实祖先路径，并发送 `window:focus-block` 事件。
+  - `src/shared/ipc.ts`
+    - 新增 `window:focus-block` 事件类型，载荷为 `{ taskId, blockId? }`。
+  - `src/renderer/App.tsx`
+    - Sticky 窗口监听 `window:focus-block`。
+    - 收到事件后通过 `navigateToTask(taskId, true, true)` 重置导航到目标任务真实路径。
+    - 如果事件带 `blockId`，导航完成后触发 `scroll-to-block` 自定义事件。
+  - `src/renderer/components/StickyView.tsx`
+    - 加强已有 `scroll-to-block` 处理：如果编辑器或页面尚未加载完成，会把目标写入 `pendingFocusRef`，等待任务内容加载后再滚动。
+    - 找到目标文本块后滚动到视图中央，并保留原有短暂高亮效果。
+  - `src/main/codexCallbackServer.ts`
+    - AI 成功、失败和会话绑定通知改用 `showTaskNotification()`。
+    - AI 成功/失败通知携带 `taskId + blockId`，点击后定位到来源文本块。
+  - `src/main/reminderScheduler.ts`
+    - 状态到点通知和状态分段通知改用 `showTaskNotification()`，携带 `taskId + blockId`。
+    - 普通提醒通知携带 `taskId`，点击后打开对应任务便签页。
+  - `src/renderer/utils/__tests__/statusNotificationScheduler.test.ts`
+    - 更新 Electron Notification mock，补齐 `once()`，适配统一通知工具。
+- **Why（为什么这么做）**：
+  - 用户要求通知点击时切回便签并定位到所在文本块，而且不只 AI 通知，所有通知都这样。
+  - 状态类通知和 AI 通知本身都有 `blockId`，可以精确定位到文本块；普通提醒当前数据库只有任务级 `taskId`，没有块级锚点，因此第一版只能定位到任务页。
+  - 把通知点击动作集中到 `showTaskNotification()`，可以避免 AI、状态、提醒三套通知以后各自写一套窗口聚焦逻辑。
+- **How（怎么实现的）**：
+  - 状态 / AI 通知点击链路：
+    - 主进程创建通知，并把 `taskId + blockId` 绑定到点击事件
+    - 用户点击系统通知
+    - `focusStickyTaskBlock()` 计算目标任务共享根与导航路径
+    - 复用或创建 Sticky 窗口
+    - 主进程向目标 Sticky 发送 `window:focus-block`
+    - Sticky 导航到目标任务页
+    - `StickyView` 滚动到 `[data-node-id="<blockId>"]` 对应文本块并高亮
+  - 普通提醒点击链路：
+    - 通知只携带 `taskId`
+    - 点击后打开或聚焦目标任务 Sticky
+    - 因为没有 `blockId`，不做块级滚动
+- **用户须知**：
+  - AI 返回、AI 失败、状态到点、状态分段提醒：点击通知会回到便签并定位到对应文本块。
+  - 普通任务提醒：点击通知会回到对应任务页，但当前不能定位到某个文本块。
+  - 通知弹出本身不会抢焦点；只有点击通知才切回应用。
+- **已知限制**：
+  - 普通提醒要支持文本块级定位，需要后续把 `reminders` 表扩展出可选 `blockId` 或建立提醒与文本块的关联。
+- **关联假设**：
+  - 无。本轮按用户明确反馈实现。
+
 ## [2026-06-08] M0.14-R1-hotfix10 Codex App prompt 收敛与 AI 状态清理
 - **What（做了什么）**：
   - `src/main/codexRunner.ts`

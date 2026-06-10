@@ -1,6 +1,70 @@
 # 项目计划（里程碑驱动）
 
-更新时间：2026-06-08（M0.14-R1-hotfix10 已完成）
+更新时间：2026-06-08（M0.14-R1-hotfix12 已完成）
+
+## M0.14-R1-hotfix12：Codex App 纯对话与清除本页会话
+
+### 任务清单
+
+- [x] 执行内容：App 模式支持无项目路径纯对话
+  - 具体执行步骤：
+    1. 将 `CodexSendBlockPromptInput.cwd` 改为可选。
+    2. 前端在 `Codex App` 模式下未配置项目路径时，不再弹出路径输入框，也不取消发送。
+    3. 主进程在 `Codex App` 模式下允许空 `cwd`。
+    4. `codex://threads/new` 有路径时带 `path=<项目路径>`，无路径时只带 `prompt=<提示词>`。
+  - 验收标准：未配置项目路径时，App 模式可以作为纯对话发起新 Codex 会话
+
+- [x] 执行内容：支持清除当前页 Codex 会话 ID
+  - 具体执行步骤：
+    1. 新增 `codex:clearSession` IPC。
+    2. 右键菜单新增“清除本页 Codex 会话”。
+    3. 点击时弹确认框，说明下次会作为新对话发起。
+    4. 确认后只清除 `codexSessionId`，保留 `codexCwd`。
+  - 验收标准：清除后再次追问会走新会话；项目路径配置不丢失
+
+- [x] 执行内容：验证并记录
+  - 具体执行步骤：
+    1. 运行 main、preload、renderer 三端 TypeScript 编译检查。
+    2. 运行 `npm test`。
+    3. 更新 `PRD.md`、`plan.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：编译检查和测试通过，文档记录纯对话和清除会话规则
+
+状态：`[x] 已完成`
+
+## M0.14-R1-hotfix11：通知点击切回便签并定位文本块
+
+### 任务清单
+
+- [x] 执行内容：新增统一通知点击动作
+  - 具体执行步骤：
+    1. 新增主进程通知工具，集中创建系统通知并处理点击事件。
+    2. 点击通知时调用 Sticky 聚焦逻辑，而不是通知弹出时主动切应用。
+    3. 有 `blockId` 的通知携带 `taskId + blockId`，没有 `blockId` 的提醒只携带 `taskId`。
+  - 验收标准：通知弹出不打断当前操作；点击通知才切回 todonotes
+
+- [x] 执行内容：打开或复用对应 Sticky 便签
+  - 具体执行步骤：
+    1. 根据目标任务祖先链计算共享根任务。
+    2. 优先复用同共享根的 Sticky 窗口。
+    3. 没有可用 Sticky 时新开一个 Sticky，并设置正确导航路径。
+    4. 主进程发送 `window:focus-block` 事件给目标 Sticky。
+  - 验收标准：点击通知后会显示对应任务所在便签，不停留在 Library 或无关便签
+
+- [x] 执行内容：Sticky 接收通知定位事件
+  - 具体执行步骤：
+    1. 新增 `window:focus-block` IPC 事件类型。
+    2. Sticky 收到事件后重置导航到目标任务真实祖先路径。
+    3. 如果事件带 `blockId`，等待页面/编辑器加载后滚动到对应文本块并高亮。
+  - 验收标准：AI 通知、状态到点通知、状态分段通知点击后定位到来源文本块；普通任务提醒点击后定位到任务页
+
+- [x] 执行内容：验证并记录
+  - 具体执行步骤：
+    1. 运行 main、preload、renderer 三端 TypeScript 编译检查。
+    2. 运行 `npm test`。
+    3. 更新 `PRD.md`、`plan.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：编译检查和测试通过，文档记录通知点击定位能力和普通提醒限制
+
+状态：`[x] 已完成`
 
 ## M0.14-R1-hotfix10：Codex App prompt 收敛与 AI 状态清理
 
