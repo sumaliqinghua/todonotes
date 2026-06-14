@@ -286,7 +286,7 @@ export function registerIpcHandlers() {
       };
     }
 
-    if (!cwd) {
+    if (!cwd && !task.codexSessionId) {
       throw new Error("请先配置项目路径");
     }
 
@@ -333,6 +333,20 @@ export function registerIpcHandlers() {
       const message = error instanceof Error && error.message ? error.message : "打开 Codex 会话失败";
       return { opened: false, method: "none" as const, message };
     }
+  });
+
+  ipcMain.handle("codex:setSession", (_event, input: Parameters<IpcInvokeMap["codex:setSession"]>[0]) => {
+    const task = getTaskById(input.taskId);
+    if (!task) {
+      throw new Error("任务不存在，无法设置 Codex 会话");
+    }
+    const sessionId = input.sessionId.trim();
+    if (!sessionId) {
+      throw new Error("Codex 会话 ID 不能为空");
+    }
+    updateTask({ id: task.id, codexSessionId: sessionId });
+    broadcast("task:updated", { taskId: task.id });
+    return { sessionId };
   });
 
   ipcMain.handle("codex:clearSession", (_event, input: Parameters<IpcInvokeMap["codex:clearSession"]>[0]) => {

@@ -39,6 +39,7 @@ export interface IpcInvokeMap {
 
   "codex:sendBlockPrompt": (input: CodexSendBlockPromptInput) => CodexSendBlockPromptResult;
   "codex:openSession": (input: { taskId: string }) => { opened: boolean; method: "app" | "terminal" | "none"; message?: string };
+  "codex:setSession": (input: { taskId: string; sessionId: string }) => { sessionId: string };
   "codex:clearSession": (input: { taskId: string }) => { cleared: boolean };
   "codex:getMode": () => { mode: CodexMode };
   "codex:setMode": (input: { mode: CodexMode }) => { mode: CodexMode };

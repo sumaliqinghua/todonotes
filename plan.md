@@ -1,6 +1,83 @@
 # 项目计划（里程碑驱动）
 
-更新时间：2026-06-08（M0.14-R1-hotfix12 已完成）
+更新时间：2026-06-10（M0.14-R1-hotfix15 已完成）
+
+## M0.14-R1-hotfix15：修正 Codex 路径弹窗触发条件
+
+### 任务清单
+
+- [x] 执行内容：按会话状态决定是否弹项目路径
+  - 具体执行步骤：
+    1. `sendBlockToCodex()` 先判断当前页是否已有 `codexSessionId`。
+    2. 已有 `codexSessionId` 时直接继续已有对话，不再弹“配置项目路径”。
+    3. 没有 `codexSessionId` 时才进入首次会话路径配置。
+    4. `Codex App` 首次会话允许项目路径为空，空路径时发起不带 `path` 参数的 deep link。
+    5. `Terminal` 首次会话仍要求项目路径，空路径时取消发送。
+  - 验收标准：已有会话 ID 或手动绑定会话 ID 的页面再次追问时不会弹项目路径；Codex App 首次会话路径留空也能发起纯对话
+
+- [x] 执行内容：补齐 Terminal 续聊空路径容错
+  - 具体执行步骤：
+    1. `codex:sendBlockPrompt` 只在“没有会话 ID 且没有项目路径”的 Terminal 首次会话场景拒绝发送。
+    2. `runCodexBlockPrompt()` 允许已有 `sessionId` 时不传 `cwd`。
+    3. 已有会话但没有 `cwd` 时，用用户 home 目录作为进程启动目录，不给 `codex exec resume` 添加 `--cd`。
+  - 验收标准：手动绑定了 `codexSessionId` 但没有 `codexCwd` 的页面，在 Terminal 模式下也能继续已有会话，不会被路径校验提前拦住
+
+- [x] 执行内容：验证并记录
+  - 具体执行步骤：
+    1. 运行 main、preload、renderer 三端 TypeScript 编译检查。
+    2. 运行 `npm test`。
+    3. 更新 `PRD.md`、`plan.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：验证通过，文档明确路径弹窗只属于首次会话配置，已有会话不会弹路径
+
+状态：`[x] 已完成`
+
+## M0.14-R1-hotfix14：恢复首次追问 Codex 的项目路径弹窗
+
+### 任务清单
+
+- [x] 执行内容：恢复页面发起 Codex 追问前的项目路径确认
+  - 具体执行步骤：
+    1. 移除 `ensureCodexCwd()` 的可选跳过逻辑。
+    2. `sendBlockToCodex()` 无论当前是 `Terminal` 模式还是 `Codex App` 模式，都先调用 `ensureCodexCwd()` 获取项目路径。
+    3. 用户取消或提交空路径时，统一提示“未配置项目路径，已取消发送”，不继续发起 Codex。
+  - 验收标准：当前页没有 `codexCwd` 时，首次右键“用当前块追问 Codex”会弹出“配置项目路径”输入框；取消或空值不会发起 AI
+
+- [x] 执行内容：验证并记录
+  - 具体执行步骤：
+    1. 运行 renderer TypeScript 编译检查，确认前端调用签名正确。
+    2. 运行 `npm test`，确认既有测试不受影响。
+    3. 更新 `PRD.md`、`plan.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：验证通过，文档明确页面发起 Codex 必须保留项目路径弹窗
+
+状态：`[x] 已完成`
+
+## M0.14-R1-hotfix13：手动绑定本页 Codex 会话 ID
+
+### 任务清单
+
+- [x] 执行内容：新增手动设置当前页 Codex 会话 ID
+  - 具体执行步骤：
+    1. 新增 `codex:setSession` IPC。
+    2. 主进程校验输入的会话 ID，去掉首尾空格后写入当前任务页的 `codexSessionId`。
+    3. 写入后广播 `task:updated`，让 Library 与 Sticky 能刷新同一页状态。
+  - 验收标准：当前页原本没有会话 ID 时，可以手动填入已有 Codex 会话 ID；原本已有会话 ID 时，可以手动换绑为另一个会话 ID
+
+- [x] 执行内容：新增右键菜单入口
+  - 具体执行步骤：
+    1. Library 详情页右键菜单新增“设置本页 Codex 会话 ID”。
+    2. Sticky 便签右键菜单新增同名入口。
+    3. 弹窗默认值显示当前页已有 `codexSessionId`，方便用户直接修改。
+    4. 用户输入空值时不写入，并提示如需解绑请使用“清除本页 Codex 会话”。
+  - 验收标准：无论当前是否选中文本块，都能从右键菜单进入设置；保存后“打开本页 Codex 会话”和后续追问都会使用新会话 ID
+
+- [x] 执行内容：验证并记录
+  - 具体执行步骤：
+    1. 运行 main、preload、renderer 三端 TypeScript 编译检查。
+    2. 运行 `npm test`。
+    3. 更新 `PRD.md`、`plan.md`、`Records.md`、`PROJECT_STATUS.md`。
+  - 验收标准：编译检查和测试通过，文档记录手动绑定与换绑会话 ID 的规则
+
+状态：`[x] 已完成`
 
 ## M0.14-R1-hotfix12：Codex App 纯对话与清除本页会话
 

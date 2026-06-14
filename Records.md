@@ -1,5 +1,159 @@
 # 实现记录（Records）
 
+## [2026-06-10] M0.14-R1-hotfix15 修正 Codex 路径弹窗触发条件
+- **What（做了什么）**：
+  - `src/renderer/App.tsx`
+    - 将路径获取函数调整为 `requestCodexCwdForFirstSession()`。
+    - `requestCodexCwdForFirstSession()` 只服务“首次创建会话”场景：如果当前页已有 `codexCwd`，直接返回该路径；如果没有 `codexCwd`，弹出“配置项目路径”输入框。
+    - `sendBlockToCodex()` 先计算 `hasSession`，也就是当前页是否已有 `codexSessionId`。
+    - 如果 `hasSession` 为 `true`，说明当前页已经绑定了 Codex 会话，后续追问直接复用该会话，不弹“配置项目路径”。
+    - 如果 `hasSession` 为 `false`，说明这是首次会话，才调用 `requestCodexCwdForFirstSession()`。
+    - 首次会话在 `Terminal` 模式下仍要求项目路径；空路径会提示“未配置项目路径，已取消发送”。
+    - 首次会话在 `Codex App` 模式下允许空路径；空路径会继续调用 `codex:sendBlockPrompt`，由主进程生成不带 `path` 参数的 deep link。
+  - `src/main/ipc/handlers.ts`
+    - `codex:sendBlockPrompt` 的路径校验改为只拦截“没有 `cwd` 且没有 `task.codexSessionId`”的 Terminal 首次会话。
+    - 已有 `task.codexSessionId` 时，即使 `cwd` 为空，也允许继续走 `runCodexBlockPrompt()`。
+  - `src/main/codexRunner.ts`
+    - `buildCodexArgs()` 支持 `cwd` 为空。
+    - 如果存在 `sessionId`，命令参数仍然是 `codex exec resume --json <SESSION_ID> <PROMPT>`，不要求 `cwd`。
+    - 如果不存在 `sessionId`，仍必须有 `cwd` 才能构造 `codex exec --json --cd <DIR> <PROMPT>`。
+    - `spawn()` 的工作目录改为 `input.cwd` 有值时使用它；没有值时使用用户 home 目录，避免已有会话续聊因为缺少 `cwd` 被 Node 提前拒绝。
+  - `PRD.md`
+    - 明确路径弹窗只在没有 `codexSessionId` 的首次会话前出现。
+    - 明确已有 `codexSessionId`，包括手动绑定的 ID，后续追问都直接续聊。
+    - 明确 `Codex App` 首次会话允许空项目路径，并使用不带 `path` 的 deep link。
+  - `PROJECT_STATUS.md`
+    - 更新当前项目状态，修正上一轮“Codex App 也必须先配置路径”的错误口径。
+  - `plan.md`
+    - 新增 M0.14-R1-hotfix15 任务清单，记录路径弹窗触发条件纠偏和 Terminal 续聊空路径容错。
+- **Why（为什么这么做）**：
+  - 用户明确指出：只有首次会话才配置路径；已有对话或手动配置了会话 ID 时，应该直接继续该 AI 对话，不应该再弹路径输入框。
+  - `codexSessionId` 表示“当前页已经绑定到某个 Codex 会话”；它的优先级高于 `codexCwd`。
+  - `codexCwd` 表示“创建或查看项目会话时的本地目录”；它不是判断是否已有会话的条件。
+  - `Codex App` deep link 支持不带项目路径创建新会话，所以首次会话路径为空时仍应允许发起纯对话。
+- **How（怎么实现的）**：
+  - 正确分支如下：
+    - 当前页有 `codexSessionId` → 直接继续已有会话 → 不弹路径
+    - 当前页没有 `codexSessionId`，且是 `Terminal` 模式 → 弹路径 → 路径为空则取消
+    - 当前页没有 `codexSessionId`，且是 `Codex App` 模式 → 弹路径 → 路径有值就带 `path`，路径为空就不带 `path`
+  - 调用链：
+    - `sendBlockToCodex()` 判断 `hasSession`
+    - 首次会话才调用 `requestCodexCwdForFirstSession()`
+    - 前端调用 `codex:sendBlockPrompt`
+    - App 模式进入 `startCodexAppPrompt()`
+    - Terminal 模式进入 `runCodexBlockPrompt()`
+- **用户须知**：
+  - 手动设置了当前页会话 ID 后，下一次追问不会弹项目路径，会直接按该会话 ID 续聊。
+  - 如果当前页没有会话 ID，首次追问会弹项目路径；在 Codex App 模式下可以直接确认空路径来发起纯对话。
+  - 在 Terminal 模式下，首次创建会话必须有项目路径，因为 `codex exec --cd <DIR>` 需要明确运行目录。
+- **已知限制**：
+  - Terminal 模式已有会话但没有项目路径时，可以继续执行 `codex exec resume`；此时进程启动目录使用用户 home 目录，不会附加 `--cd`。
+- **关联假设**：
+  - 无。本轮按用户明确反馈修正。
+
+## [2026-06-10] M0.14-R1-hotfix14 恢复首次追问 Codex 的项目路径弹窗
+- **What（做了什么）**：
+  - `src/renderer/App.tsx`
+    - 将 `ensureCodexCwd(task, options)` 改回 `ensureCodexCwd(task)`。
+    - 移除 `options.optional` 可选跳过逻辑；`optional` 原本表示“允许没有项目路径也继续”，现在页面发起追问不再使用这个行为。
+    - `sendBlockToCodex()` 不再按 `codexMode === "app"` 传入可选路径参数。
+    - 当前页没有 `codexCwd` 时，无论全局模式是 `Terminal` 还是 `Codex App`，都会先弹出“配置项目路径”输入框。
+    - 用户取消输入框或提交空路径时，统一提示“未配置项目路径，已取消发送”，并直接结束本次发送，不会把文本块标为 `AI处理中`，也不会调用 `codex:sendBlockPrompt`。
+  - `PRD.md`
+    - 变更历史新增 2026-06-10 修正规则。
+    - 明确“配置项目路径”弹窗在 `Terminal` 与 `Codex App` 两种模式下都保留。
+  - `PROJECT_STATUS.md`
+    - 更新项目概述和 Codex 已完成功能，说明页面右键追问入口必须先配置 `codexCwd`。
+    - 把旧的“Codex App 无路径纯对话”口径降级为底层保留能力，不再作为页面发起追问的默认交互。
+  - `plan.md`
+    - 新增 M0.14-R1-hotfix14 任务清单，记录恢复路径弹窗与验证项。
+- **Why（为什么这么做）**：
+  - 用户明确反馈：页面首次“用当前块追问 Codex”时，项目路径输入弹窗需要保留。
+  - `codexCwd` 是当前页绑定的 Codex 项目路径；它决定 Codex 在哪个本地目录下理解代码和执行工具。
+  - 即使 `Codex App` deep link 技术上可以不带项目路径，todonotes 的页面追问场景仍然应优先保持“每页绑定项目路径”的产品体验，避免首次追问变成没有项目上下文的纯对话。
+- **How（怎么实现的）**：
+  - 页面追问链路现在是：
+    - 用户在 Library 或 Sticky 右键文本块
+    - 点击“用当前块追问 Codex”
+    - 前端读取当前页 `codexCwd`
+    - 如果已有路径，直接继续发送
+    - 如果没有路径，弹出“配置项目路径”
+    - 用户填写路径后，路径写入当前页并继续发送
+    - 用户取消或填空，本次追问取消
+  - 后续发送链路不变：
+    - 没有 `codexSessionId` 时创建新会话
+    - 已有 `codexSessionId` 时继续已有会话
+    - 手动设置的 `codexSessionId` 与自动写回的 `codexSessionId` 使用同一套继续对话逻辑
+- **用户须知**：
+  - 首次页面追问会重新出现“配置项目路径”弹窗。
+  - 该弹窗只在当前页还没有 `codexCwd` 时出现；保存后同一页后续追问会复用路径。
+  - 要换绑 AI 对话，仍使用“设置本页 Codex 会话 ID”；要重新开对话，使用“清除本页 Codex 会话”。
+- **已知限制**：
+  - 主进程底层仍保留 Codex App 空 `cwd` 的容错能力；但正常页面入口不会主动走这条路径。
+- **关联假设**：
+  - 无。本轮按用户明确反馈修正。
+
+## [2026-06-10] M0.14-R1-hotfix13 手动绑定本页 Codex 会话 ID
+- **What（做了什么）**：
+  - `src/shared/ipc.ts`
+    - 新增 `codex:setSession` IPC。
+    - 输入为 `{ taskId, sessionId }`：`taskId` 表示当前子页任务 ID，`sessionId` 表示要绑定的 Codex 会话 ID。
+    - 输出为 `{ sessionId }`：返回主进程去掉首尾空格后的最终保存值。
+  - `src/main/ipc/handlers.ts`
+    - 新增 `codex:setSession` handler。
+    - 先用 `taskId` 读取任务，任务不存在时抛出“任务不存在，无法设置 Codex 会话”。
+    - 对 `sessionId` 执行 `trim()` 去掉首尾空格；去空后如果为空，抛出“Codex 会话 ID 不能为空”。
+    - 调用 `updateTask({ id, codexSessionId })` 写入 `tasks.codex_session_id`。
+    - 写入后广播 `task:updated`，让同一任务页的 Library / Sticky 窗口刷新状态。
+  - `src/renderer/App.tsx`
+    - 新增 `setCodexSessionForTask()`。
+    - 通过现有标题输入弹窗展示“设置本页 Codex 会话 ID”，默认值为当前任务的 `codexSessionId`。
+    - 用户取消时不做任何修改。
+    - 用户提交空值时弹出“Codex 会话 ID 不能为空。如需解绑，请使用‘清除本页 Codex 会话’。”，避免把“设置”入口和“清除”入口混在一起。
+    - 保存成功后重新加载当前任务；Library 窗口还会刷新左侧列表。
+    - 把 `setCodexSessionForTask` 传给 `TaskDetail` 和 `StickyView`。
+  - `src/renderer/components/TaskDetail.tsx`
+    - Library 详情页右键菜单新增“设置本页 Codex 会话 ID”。
+    - 该入口在有文本块命中和没有文本块命中时都显示；因为它是页面级配置，不依赖具体文本块。
+  - `src/renderer/components/StickyView.tsx`
+    - Sticky 便签右键菜单新增同样的“设置本页 Codex 会话 ID”。
+    - 行为与 Library 保持一致，也是不依赖具体文本块的页面级配置。
+  - `PRD.md`
+    - 记录手动绑定/换绑规则，以及手动写入的 `codexSessionId` 会参与后续 `codex exec resume`。
+  - `plan.md`
+    - 新增并完成 M0.14-R1-hotfix13 任务清单。
+  - `PROJECT_STATUS.md`
+    - 更新项目现状，补充 `tasks.codex_session_id` 可由用户手动设置或换绑。
+- **Why（为什么这么做）**：
+  - 用户需要把当前页关联到一个已经存在的 AI 对话，而不是只能由 todonotes 首次发起后自动记录会话 ID。
+  - 用户还需要后续手动修改这个关联，用来把当前页换绑到另一个 AI 对话。
+  - 复用现有 `codexSessionId` 字段和继续对话链路，可以保持实现最小：保存后的 ID 与自动写回的 ID 没有区别，后续发送自然走既有 resume 逻辑。
+  - 没有新增数据库字段，是因为当前 `tasks.codex_session_id` 已经准确表达“当前页绑定的 Codex 会话 ID”。
+- **How（怎么实现的）**：
+  - 手动绑定链路：
+    - 用户在 Library 或 Sticky 当前页右键
+    - 点击“设置本页 Codex 会话 ID”
+    - 前端弹出输入框，默认带入当前 `codexSessionId`
+    - 用户填入已有 Codex 会话 ID 并确认
+    - 前端调用 `codex:setSession`
+    - 主进程校验并写入 `tasks.codex_session_id`
+    - 主进程广播 `task:updated`
+    - 当前页重新加载，菜单中的“打开本页 Codex 会话”和后续追问都使用新 ID
+  - 后续继续对话链路：
+    - 用户右键文本块选择“用当前块追问 Codex”
+    - 主进程读取当前任务的 `codexSessionId`
+    - 如果是 `terminal` 模式，调用 `codex exec resume --json <SESSION_ID> <prompt>`
+    - 如果是 `app` 模式，打开 `codex://threads/<SESSION_ID>`，并把带 `todonotes_callback` 的 prompt 复制到剪贴板
+- **用户须知**：
+  - “设置本页 Codex 会话 ID”用于绑定或换绑，不用于清空；要解除绑定请用“清除本页 Codex 会话”。
+  - 手动填入的 ID 不会校验它是否真实存在于 Codex，因为 todonotes 本地无法在保存时稳定判断所有 Codex 会话来源；如果 ID 填错，后续打开或继续对话时会由 Codex CLI / Codex App 报错。
+  - Terminal 模式继续对话仍需要项目路径 `codexCwd`；如果当前页没有项目路径，发送时仍会提示配置项目路径。
+- **已知限制**：
+  - 目前没有提供独立的“复制当前会话 ID”按钮；用户需要从 Codex `/status` 或其他来源拿到会话 ID 后粘贴。
+  - 保存会话 ID 时只做非空校验，不做 UUID 格式校验，以兼容 Codex 后续可能变化的本地 thread ID 格式。
+- **关联假设**：
+  - 无。本轮按用户明确需求实现。
+
 ## [2026-06-08] M0.14-R1-hotfix12 Codex App 纯对话与清除本页会话
 - **What（做了什么）**：
   - `src/shared/types.ts`

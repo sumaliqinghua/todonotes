@@ -145,11 +145,15 @@ function parseCodexJsonLine(line: string, current: CodexRunResult): CodexRunResu
   }
 }
 
-function buildCodexArgs(input: { sessionId?: string | null; cwd: string; prompt: string }) {
+function buildCodexArgs(input: { sessionId?: string | null; cwd?: string | null; prompt: string }) {
   if (input.sessionId) {
     return ["exec", "resume", "--json", input.sessionId, input.prompt];
   }
-  return ["exec", "--json", "--cd", input.cwd, input.prompt];
+  const cwd = input.cwd?.trim();
+  if (!cwd) {
+    throw new Error("请先配置项目路径");
+  }
+  return ["exec", "--json", "--cd", cwd, input.prompt];
 }
 
 function isExecutable(filePath: string) {
@@ -199,8 +203,13 @@ function resolveCodexExecutable() {
   );
 }
 
-export function runCodexBlockPrompt(input: { sessionId?: string | null; cwd: string; prompt: string }): Promise<CodexRunResult> {
-  const args = buildCodexArgs(input);
+export function runCodexBlockPrompt(input: { sessionId?: string | null; cwd?: string | null; prompt: string }): Promise<CodexRunResult> {
+  let args: string[];
+  try {
+    args = buildCodexArgs(input);
+  } catch (error) {
+    return Promise.reject(error);
+  }
   return new Promise((resolve, reject) => {
     const codexExecutable = resolveCodexExecutable();
     if (!codexExecutable) {
@@ -208,7 +217,7 @@ export function runCodexBlockPrompt(input: { sessionId?: string | null; cwd: str
       return;
     }
     const child = spawn(codexExecutable, args, {
-      cwd: input.cwd,
+      cwd: input.cwd?.trim() || app.getPath("home"),
       stdio: ["ignore", "pipe", "pipe"]
     });
     let result: CodexRunResult = { sessionId: input.sessionId ?? null, finalMessage: "" };

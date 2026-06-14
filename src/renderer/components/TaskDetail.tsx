@@ -41,6 +41,7 @@ interface Props {
   onRequestTitle: (options: { title: string; placeholder?: string; defaultValue?: string }) => Promise<string | null>;
   onSendBlockToCodex: (input: { task: Task; blockId: string; blockText: string; blocks: any }) => Promise<void>;
   onOpenCodexSession: (task: Task) => Promise<void>;
+  onSetCodexSession: (task: Task) => Promise<void>;
   onClearCodexSession: (task: Task) => Promise<void>;
   onShowMenu: (menu: ContextMenuState | null) => void;
   onHistoryBack: () => void;
@@ -64,6 +65,7 @@ export default function TaskDetail({
   onRequestTitle,
   onSendBlockToCodex,
   onOpenCodexSession,
+  onSetCodexSession,
   onClearCodexSession,
   onShowMenu,
   onHistoryBack,
@@ -658,6 +660,12 @@ export default function TaskDetail({
             }
           },
           {
+            label: "设置本页 Codex 会话 ID",
+            action: () => {
+              void onSetCodexSession(task);
+            }
+          },
+          {
             label: "清除本页 Codex 会话",
             disabled: !task.codexSessionId,
             action: () => {
@@ -675,6 +683,12 @@ export default function TaskDetail({
             disabled: !task.codexSessionId,
             action: () => {
               void onOpenCodexSession(task);
+            }
+          },
+          {
+            label: "设置本页 Codex 会话 ID",
+            action: () => {
+              void onSetCodexSession(task);
             }
           },
           {

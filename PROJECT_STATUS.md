@@ -1,7 +1,10 @@
-# 项目现状（最后更新：2026-06-08）
+# 项目现状（最后更新：2026-06-10）
 
 ## 项目概述
-- 当前已完成 M0.14-R1-hotfix12：Codex App 模式支持未配置项目路径时以纯对话方式发起新会话；右键菜单新增“清除本页 Codex 会话”，确认后只清除当前子页 `codexSessionId`，保留 `codexCwd`，下次追问按新会话发起。
+- 当前已完成 M0.14-R1-hotfix15：修正 Codex 路径弹窗触发条件；只有当前子页没有 `codexSessionId`、准备发起首次会话时才弹“配置项目路径”。已有 `codexSessionId`，包括手动绑定的会话 ID，后续追问直接继续已有会话，不再弹路径；Codex App 首次会话允许路径为空并发起不带 `path` 的纯对话 deep link。
+- 当前已完成 M0.14-R1-hotfix14：恢复首次“用当前块追问 Codex”的项目路径弹窗；该弹窗只用于首次会话配置，不用于已有会话续聊。
+- 当前已完成 M0.14-R1-hotfix13：Library 和 Sticky 右键菜单新增“设置本页 Codex 会话 ID”，可把当前子页手动绑定到已有 Codex 会话，也可编辑换绑到另一个会话；后续追问会把手动保存的 `codexSessionId` 当作已有会话继续使用。
+- 当前已完成 M0.14-R1-hotfix12：右键菜单新增“清除本页 Codex 会话”，确认后只清除当前子页 `codexSessionId`，保留 `codexCwd`，下次追问按新会话发起；Codex App 底层仍可拼无项目路径 deep link，但页面右键追问入口已在 M0.14-R1-hotfix14 恢复为先配置项目路径。
 - 当前已完成 M0.14-R1-hotfix11：系统通知支持点击后切回 todonotes Sticky 便签；AI 回调通知、状态到点通知、状态分段通知会定位到来源文本块，普通任务提醒会定位到对应任务便签页。
 - 当前已完成 M0.14-R1-hotfix10：Codex App 模式 prompt 改为“原始问题 + todonotes-callback skill + 短元数据块”，不再把大段 CLI 命令混进用户问题；发起新文本块 AI 时会清理本页旧 AI 专用状态，旧 AI 任务晚回调不会复活旧状态，Codex 回调系统通知也做了保活增强。
 - 当前已完成 M0.14-R1-hotfix9：Codex 集成新增 `Terminal` / `Codex App` 双模式；Library 标题栏可切换模式；Codex App 模式通过 deep link 打开 Codex App、复制带 todonotes CLI 回调命令的 prompt，并支持 `codex-session` 写回本页会话 ID、`codex-done` / `codex-failed` 更新文本块状态。
@@ -77,7 +80,7 @@
   - 打包工具：electron-builder；编译产物目录是 `dist`，安装包输出目录是 `release`
 - 核心架构设计（简要描述）
   - 任务数据主存于 `tasks`，父子关系由 `edges` 独立维护，正文链接块仅作入口展示。
-  - Codex 子页会话元数据存于 `tasks.codex_cwd` 和 `tasks.codex_session_id`；文本块作为每次追问输入，块状态仍写在 Tiptap blocks attrs 中。
+  - Codex 子页会话元数据存于 `tasks.codex_cwd` 和 `tasks.codex_session_id`；`tasks.codex_session_id` 可由 Codex CLI 自动写回、Codex App 回调写回，也可由用户通过右键菜单手动设置或换绑；文本块作为每次追问输入，块状态仍写在 Tiptap blocks attrs 中。
   - Codex 全局模式存于 `app_settings` 表，键名为 `codex.mode`，默认值为 `terminal`。
   - Codex App 模式的状态回写依赖主进程本地 HTTP 服务 `127.0.0.1:17373/codex/callback`；CLI 脚本把 `session`、`done`、`failed` 事件 POST 到该地址。
   - Codex App 模式会确保 `~/.codex/skills/todonotes-callback/SKILL.md` 存在；prompt 只传 `todonotes_callback` 元数据块，由 skill 在对话结束前执行 CLI 回调。
@@ -102,7 +105,8 @@
     - 打开会话时执行 `codex resume --include-non-interactive --cd <DIR> <SESSION_ID>`，并按 TTY 复用已有 Terminal tab。
   - `Codex App` 模式：
     - 首次追问打开 `codex://threads/new?path=<DIR>&prompt=<URL_ENCODED_PROMPT>`。
-    - 如果当前子页没有配置 `codexCwd`，首次追问打开 `codex://threads/new?prompt=<URL_ENCODED_PROMPT>`，作为无项目路径的纯对话。
+    - 首次会话会先弹出“配置项目路径”输入框；如果用户提交空路径，会打开 `codex://threads/new?prompt=<URL_ENCODED_PROMPT>`，作为无项目路径纯对话。
+    - 已有 `codexSessionId` 时直接打开 `codex://threads/<SESSION_ID>`，不再弹项目路径。
     - 已有会话打开 `codex://threads/<SESSION_ID>`。
     - 完整 prompt 会写入剪贴板；prompt 内只包含原始问题、`todonotes-callback` skill 提示和 `todonotes_callback` 元数据块，不再直接展示完整 CLI 命令。
     - `codex-session --task <taskId> --session <sessionId>` 用于首次把 Codex App thread ID 写回当前子页。
@@ -111,10 +115,13 @@
     - 回调服务只监听 `127.0.0.1:17373`，要求 todonotes 正在运行。
     - 发起新的文本块 AI 前，会清理当前页旧的 AI 专用状态：`AI处理中`、`AI已返回结果`、`失败`。人工等待原因不受影响。
     - `codex-done` / `codex-failed` 只有在目标块仍为 `waiting + AI处理中` 时才更新块状态；如果用户已经发起下一块 AI，旧回调不会把旧块重新标成 AI 已返回。
+    - 右键菜单提供“设置本页 Codex 会话 ID”；用户输入已有 Codex 会话 ID 后写入当前页 `codexSessionId`，可用于把本页绑定到已有对话，也可把本页换绑到另一个对话。
     - 右键菜单提供“清除本页 Codex 会话”；确认后清除 `codexSessionId`，不清除 `codexCwd`，下次追问按新会话处理。
   - Codex CLI 通过 `resolveCodexExecutable` 自动查找；可用 `CODEX_CLI_PATH` 显式指定 `codex` 可执行文件绝对路径。
   - Library 详情页和 Sticky 便签普通文本块右键新增“用当前块追问 Codex”。
-  - 首次追问前要求输入项目绝对路径；路径保存到当前子页，后续复用。
+  - 只有当前页没有 `codexSessionId`、即将创建首次会话时，才会弹“配置项目路径”。
+  - `Terminal` 首次会话必须填写项目路径；`Codex App` 首次会话可以提交空路径，空路径会按纯对话发起。
+  - 已有 `codexSessionId` 时不弹路径输入框；后续追问直接继续该会话。
   - 没有会话时执行 `codex exec --json --cd <DIR> <prompt>` 创建会话。
   - 已有会话时执行 `codex exec resume --json <SESSION_ID> <prompt>` 继续同一会话。
   - 处理中把当前块写成 `waiting`，`waitReason=AI处理中`；成功后写成 `doing`，`waitReason=AI已返回结果`，正文徽标显示 `进行中.AI已返回结果:xxm`；失败后保持 `waiting`，`waitReason=失败`。
@@ -264,7 +271,10 @@
   - 文档内容与当前实现入口对齐（Library 顶部下拉插入、Sticky 右键插入、任务树四 Tab、同父重名规则）
 
 ## 当前进度
-- 已完成：M0.14-R1-hotfix12（Codex App 无项目路径纯对话，清除本页 Codex 会话 ID）。
+- 已完成：M0.14-R1-hotfix15（修正路径弹窗触发条件：首次会话才问路径，已有会话直接续聊；Codex App 首次允许空路径纯对话）。
+- 已完成：M0.14-R1-hotfix14（恢复首次会话的项目路径弹窗；该规则已由 hotfix15 细化）。
+- 已完成：M0.14-R1-hotfix13（手动设置或换绑当前页 Codex 会话 ID）。
+- 已完成：M0.14-R1-hotfix12（清除本页 Codex 会话 ID；底层保留 Codex App 无路径 deep link 能力，但页面追问入口已恢复路径弹窗）。
 - 已完成：M0.14-R1-hotfix11（通知点击切回 Sticky 并定位文本块；任务级提醒点击回到任务页）。
 - 已完成：M0.14-R1-hotfix10（Codex App prompt 收敛为 skill 回调，开启新 AI 清理旧 AI 状态，旧回调不复活旧块）。
 - 已完成：M0.14-R1-hotfix9（Codex App 模式与 CLI 回调，支持 Library 顶部切换 Terminal / Codex App）。

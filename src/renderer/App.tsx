@@ -333,21 +333,20 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     }
   };
 
-  const ensureCodexCwd = async (task: Task, options?: { optional?: boolean }) => {
+  const requestCodexCwdForFirstSession = async (task: Task) => {
     const existing = task.codexCwd?.trim();
     if (existing) {
-      return existing;
-    }
-    if (options?.optional) {
-      return null;
+      return { cancelled: false, cwd: existing };
     }
     const input = await requestTitle({
       title: "配置项目路径",
       placeholder: "请输入 Codex 运行的项目绝对路径",
       defaultValue: "/Users/lmy/proj/Others/todonotes"
     });
-    const cwd = input?.trim();
-    return cwd || null;
+    if (input === null) {
+      return { cancelled: true, cwd: null };
+    }
+    return { cancelled: false, cwd: input.trim() || null };
   };
 
   const sendBlockToCodex = async (input: { task: Task; blockId: string; blockText: string; blocks: any }) => {
@@ -356,12 +355,15 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
       alert("当前文本块没有可发送内容");
       return;
     }
-    const cwd = await ensureCodexCwd(input.task, { optional: codexMode === "app" });
-    if (!cwd) {
-      if (codexMode !== "app") {
-        alert("未配置项目路径，已取消发送");
-        return;
-      }
+    const hasSession = Boolean(input.task.codexSessionId?.trim());
+    const firstSessionCwd = hasSession ? { cancelled: false, cwd: input.task.codexCwd?.trim() || null } : await requestCodexCwdForFirstSession(input.task);
+    if (firstSessionCwd.cancelled) {
+      return;
+    }
+    const cwd = firstSessionCwd.cwd;
+    if (!hasSession && codexMode === "terminal" && !cwd) {
+      alert("未配置项目路径，已取消发送");
+      return;
     }
     const clearedBlocks = clearCodexStatusAttrsInBlocks(input.blocks, input.blockId);
     const waitingBlocks = updateBlockStatusInBlocks(clearedBlocks.blocks, input.blockId, {
@@ -401,6 +403,27 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
     const result = await api.invoke("codex:openSession", { taskId: task.id });
     if (!result.opened) {
       alert(result.message ?? "当前子页还没有 Codex 会话");
+    }
+  };
+
+  const setCodexSessionForTask = async (task: Task) => {
+    const input = await requestTitle({
+      title: "设置本页 Codex 会话 ID",
+      placeholder: "请输入已有 Codex 会话 ID",
+      defaultValue: task.codexSessionId ?? ""
+    });
+    if (input === null) {
+      return;
+    }
+    const sessionId = input.trim();
+    if (!sessionId) {
+      alert("Codex 会话 ID 不能为空。如需解绑，请使用“清除本页 Codex 会话”。");
+      return;
+    }
+    await api.invoke("codex:setSession", { taskId: task.id, sessionId });
+    await loadTask(task.id);
+    if (windowType === "library") {
+      await refreshLibrary(searchQuery, libraryTab);
     }
   };
 
@@ -972,6 +995,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
           onRequestTitle={requestTitle}
           onSendBlockToCodex={sendBlockToCodex}
           onOpenCodexSession={openCodexSessionForTask}
+          onSetCodexSession={setCodexSessionForTask}
           onClearCodexSession={clearCodexSessionForTask}
           onShowMenu={showMenu}
           isPinned={alwaysOnTop}
@@ -1089,6 +1113,7 @@ export default function App({ windowId, rootTaskId, windowType }: Props) {
             onRequestTitle={requestTitle}
             onSendBlockToCodex={sendBlockToCodex}
             onOpenCodexSession={openCodexSessionForTask}
+            onSetCodexSession={setCodexSessionForTask}
             onClearCodexSession={clearCodexSessionForTask}
             onShowMenu={showMenu}
             />
